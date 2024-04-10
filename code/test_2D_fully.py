@@ -27,15 +27,18 @@ parser.add_argument('--num_classes', type=int,  default=4,
 parser.add_argument('--labeled_num', type=int, default=3,
                     help='labeled data')
 
-
 def calculate_metric_percase(pred, gt):
     pred[pred > 0] = 1
     gt[gt > 0] = 1
-    dice = metric.binary.dc(pred, gt)
-    asd = metric.binary.asd(pred, gt)
-    hd95 = metric.binary.hd95(pred, gt)
-    return dice, hd95, asd
 
+    dice = metric.binary.dc(pred, gt)
+    if np.count_nonzero(pred == 0) > 0 and np.count_nonzero(gt == 0) > 0 \
+       and np.count_nonzero(pred) > 0 and np.count_nonzero(gt) > 0:
+        asd = metric.binary.asd(pred, gt)
+        hd95 = metric.binary.hd95(pred, gt)
+        return dice, hd95, asd 
+    else:
+        return dice, 1, 1 # TODO czy dobrze?
 
 def test_single_volume(case, net, test_save_path, FLAGS):
     h5f = h5py.File(FLAGS.root_path + "/data/{}.h5".format(case), 'r')
@@ -47,7 +50,13 @@ def test_single_volume(case, net, test_save_path, FLAGS):
         x, y = slice.shape[0], slice.shape[1]
         slice = zoom(slice, (256 / x, 256 / y), order=0)
         input = torch.from_numpy(slice).unsqueeze(
-            0).unsqueeze(0).float().cuda()
+            0).unsqueeze(0).float()
+        
+        if torch.backends.mps.is_available():
+            input = input.to("mps")
+        else:
+            input = input.cuda()
+
         net.eval()
         with torch.no_grad():
             if FLAGS.model == "unet_urds":
