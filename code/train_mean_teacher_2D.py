@@ -125,7 +125,7 @@ def train(args, snapshot_path):
         labeled_idxs, unlabeled_idxs, batch_size, batch_size-args.labeled_bs)
 
     trainloader = DataLoader(db_train, batch_sampler=batch_sampler,
-                             num_workers=4, pin_memory=True, worker_init_fn=worker_init_fn)
+                             num_workers=0, pin_memory=True, worker_init_fn=worker_init_fn)
 
     model.train()
 
@@ -148,7 +148,12 @@ def train(args, snapshot_path):
         for i_batch, sampled_batch in enumerate(trainloader):
 
             volume_batch, label_batch = sampled_batch['image'], sampled_batch['label']
-            volume_batch, label_batch = volume_batch.cuda(), label_batch.cuda()
+            
+            if torch.backends.mps.is_available():
+                volume_batch, label_batch = volume_batch.to("mps"), label_batch.to("mps")
+            else:
+                volume_batch, label_batch = volume_batch.cuda(), label_batch.cuda()
+
             unlabeled_volume_batch = volume_batch[args.labeled_bs:]
 
             noise = torch.clamp(torch.randn_like(

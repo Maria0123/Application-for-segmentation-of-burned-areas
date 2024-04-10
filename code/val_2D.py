@@ -24,7 +24,13 @@ def test_single_volume(image, label, net, classes, patch_size=[256, 256]):
         x, y = slice.shape[0], slice.shape[1]
         slice = zoom(slice, (patch_size[0] / x, patch_size[1] / y), order=0)
         input = torch.from_numpy(slice).unsqueeze(
-            0).unsqueeze(0).float().cuda()
+            0).unsqueeze(0).float()
+        
+        if torch.backends.mps.is_available():
+            input = input.to("mps")
+        else:
+            input = input.cuda()
+
         net.eval()
         with torch.no_grad():
             out = torch.argmax(torch.softmax(
