@@ -1,0 +1,1 @@
+There are three datasets: (1) ACDC with 200 3D MRI volumes: https://acdc.creatis.insa-lyon.fr; (2) ProstateX with 201 3D MRI volumes: https://github.com/ykl-ucla/prostate_zonal_seg; (3) CHAOS with 20 MRI-T2 volumes: https://chaos.grand-challenge.org.
