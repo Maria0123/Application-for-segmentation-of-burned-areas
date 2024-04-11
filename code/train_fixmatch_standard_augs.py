@@ -237,7 +237,7 @@ def train(args, snapshot_path):
     trainloader = DataLoader(
         db_train,
         batch_sampler=batch_sampler,
-        num_workers=4,
+        num_workers=0,
         pin_memory=True,
         worker_init_fn=worker_init_fn,
     )
@@ -268,11 +268,19 @@ def train(args, snapshot_path):
                 sampled_batch["image_strong"],
                 sampled_batch["label_aug"],
             )
-            weak_batch, strong_batch, label_batch = (
-                weak_batch.cuda(),
-                strong_batch.cuda(),
-                label_batch.cuda(),
-            )
+
+            if torch.backends.mps.is_available():
+                weak_batch, strong_batch, label_batch = (
+                    weak_batch.to("mps"),
+                    strong_batch.to("mps"),
+                    label_batch.to("mps"),
+                )   
+            else: 
+                weak_batch, strong_batch, label_batch = (
+                    weak_batch.cuda(),
+                    strong_batch.cuda(),
+                    label_batch.cuda(),
+                )
 
             # outputs for model
             outputs_weak = model(weak_batch)
