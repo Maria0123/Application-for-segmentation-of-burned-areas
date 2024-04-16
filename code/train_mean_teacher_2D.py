@@ -51,7 +51,7 @@ parser.add_argument('--num_classes', type=int,  default=4,
 # label and unlabel
 parser.add_argument('--labeled_bs', type=int, default=12,
                     help='labeled_batch_size per gpu')
-parser.add_argument('--labeled_num', type=int, default=136,
+parser.add_argument('--labeled_num', type=int, default=7,
                     help='labeled data')
 # costs
 parser.add_argument('--ema_decay', type=float,  default=0.99, help='ema_decay')
@@ -69,9 +69,11 @@ def patients_to_slices(dataset, patiens_num):
     if "ACDC" in dataset:
         ref_dict = {"3": 68, "7": 136,
                     "14": 256, "21": 396, "28": 512, "35": 664, "140": 1312}
-    elif "Prostate":
+    elif "Prostate" in dataset:
         ref_dict = {"2": 27, "4": 53, "8": 120,
                     "12": 179, "16": 256, "21": 312, "42": 623}
+    elif "CaBuAr" in dataset:
+        ref_dict = {"3": 15, "7": 70, "13": 150}
     else:
         print("Error")
     return ref_dict[str(patiens_num)]
@@ -97,7 +99,7 @@ def train(args, snapshot_path):
 
     def create_model(ema=False):
         # Network definition
-        model = net_factory(net_type=args.model, in_chns=1,
+        model = net_factory(net_type=args.model, in_chns=12,
                             class_num=num_classes)
         if ema:
             for param in model.parameters():
@@ -111,7 +113,7 @@ def train(args, snapshot_path):
         random.seed(args.seed + worker_id)
 
     db_train = BaseDataSets(base_dir=args.root_path, split="train", num=None, transform=transforms.Compose([
-        RandomGenerator(args.patch_size)
+        # RandomGenerator(args.patch_size)
     ]))
     db_val = BaseDataSets(base_dir=args.root_path, split="val")
 
@@ -167,9 +169,9 @@ def train(args, snapshot_path):
                 ema_output_soft = torch.softmax(ema_output, dim=1)
 
             loss_ce = ce_loss(outputs[:args.labeled_bs],
-                              label_batch[:][:args.labeled_bs].long())
+                              label_batch[:][:args.labeled_bs])
             loss_dice = dice_loss(
-                outputs_soft[:args.labeled_bs], label_batch[:args.labeled_bs].unsqueeze(1))
+                outputs_soft[:args.labeled_bs], label_batch[:args.labeled_bs])
             supervised_loss = 0.5 * (loss_dice + loss_ce)
             consistency_weight = get_current_consistency_weight(iter_num//150)
             if iter_num < 1000:
