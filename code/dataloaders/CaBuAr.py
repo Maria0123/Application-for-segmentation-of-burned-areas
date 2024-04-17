@@ -66,7 +66,7 @@ class CaBuAr(Dataset):
         if self.split == "train":
             if None not in (self.ops_weak, self.ops_strong):
                 sample = self.transform(sample, self.ops_weak, self.ops_strong)
-            else:
+            elif self.transform:
                 sample = self.transform(sample)
         sample["idx"] = idx
         return sample

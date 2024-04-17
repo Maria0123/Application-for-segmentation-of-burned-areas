@@ -44,7 +44,7 @@ parser.add_argument('--base_lr', type=float,  default=0.01,
 parser.add_argument('--patch_size', type=list,  default=[256, 256],
                     help='patch size of network input')
 parser.add_argument('--seed', type=int,  default=1337, help='random seed')
-parser.add_argument('--num_classes', type=int,  default=1,
+parser.add_argument('--num_classes', type=int,  default=2,
                     help='output channel of network')
 
 # label and unlabel
@@ -110,9 +110,9 @@ def train(args, snapshot_path):
     def worker_init_fn(worker_id):
         random.seed(args.seed + worker_id)
 
-    db_train = CaBuAr(base_dir=args.root_path, split="train", num=None, transform=transforms.Compose([
-        RandomNoise()
-    ]))
+    db_train = CaBuAr(base_dir=args.root_path, split="train", num=None) #, transform=transforms.Compose([
+        # RandomNoise()
+    #]))
     db_val = CaBuAr(base_dir=args.root_path, split="val")
 
     total_slices = len(db_train)
@@ -145,10 +145,13 @@ def train(args, snapshot_path):
             if torch.backends.mps.is_available():
                 volume_batch, label_batch = volume_batch.to(torch.float32).to("mps"), label_batch.to(torch.float32).to("mps")
             else:
-                volume_batch, label_batch = volume_batch.cuda(), label_batch.cuda()
+                volume_batch, label_batch = volume_batch.to(torch.float32).cuda(), label_batch.to(torch.float32).cuda()
             outputs = model(volume_batch)
             outputs_soft = torch.softmax(outputs, dim=1)
 
+            # print(torch.count_nonzero(volume_batch), torch.count_nonzero(label_batch))
+            # if torch.count_nonzero(outputs_soft[:args.labeled_bs]) != 524288:
+            #     print("out", torch.count_nonzero(outputs_soft[:args.labeled_bs]), "lab", torch.count_nonzero(label_batch[:args.labeled_bs]))
             loss_dice = dice_loss(
                 outputs_soft[:args.labeled_bs], label_batch[:args.labeled_bs])
             supervised_loss = 0.5 * loss_dice
@@ -191,13 +194,12 @@ def train(args, snapshot_path):
                 labs = label_batch[0, ...] * 50
                 writer.add_image('train/GroundTruth', labs, iter_num)
 
-            if iter_num > 0 and iter_num % 30 == 0:
+            if iter_num > 0 and iter_num % 3000 == 0:
                 model.eval()
                 metric_list = 0.0
                 for i_batch, sampled_batch in enumerate(valloader):
                     metric_i = test_single_volume_cbr(
                         sampled_batch["image"], sampled_batch["label"], model, classes=num_classes)
-                    print(metric_i)
                     metric_list += np.array(metric_i)
                 metric_list = metric_list / len(db_val)
                 for class_i in range(num_classes-1):
