@@ -132,7 +132,7 @@ def train(args, snapshot_path):
     model.train()
 
     valloader = DataLoader(db_val, batch_size=1, shuffle=False,
-                           num_workers=1)
+                           num_workers=0)
 
     optimizer = optim.SGD(model.parameters(), lr=base_lr,
                           momentum=0.9, weight_decay=0.0001)
@@ -209,7 +209,7 @@ def train(args, snapshot_path):
                     outputs, dim=1), dim=1, keepdim=True)
                 writer.add_image('train/Prediction',
                                  outputs[1, ...] * 50, iter_num)
-                labs = label_batch[1, ...].unsqueeze(0) * 50
+                labs = label_batch[1, ...] * 50
                 writer.add_image('train/GroundTruth', labs, iter_num)
 
             if iter_num > 0 and iter_num % 200 == 0:

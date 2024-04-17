@@ -19,29 +19,28 @@ def test_single_volume(image, label, net, classes, patch_size=[256, 256]):
     image, label = image.squeeze(0).cpu().detach(
     ).numpy(), label.squeeze(0).cpu().detach().numpy()
     prediction = np.zeros_like(label)
-    for ind in range(image.shape[0]):
-        slice = image[ind, :, :]
-        x, y = slice.shape[0], slice.shape[1]
-        slice = zoom(slice, (patch_size[0] / x, patch_size[1] / y), order=0)
-        input = torch.from_numpy(slice).unsqueeze(
-            0).unsqueeze(0).float()
-        
-        if torch.backends.mps.is_available():
-            input = input.to("mps")
-        else:
-            input = input.cuda()
+    # for ind in range(image.shape[0]):
+    slice = image # image[ind, :, :]
+    x, y = slice.shape[0], slice.shape[1]
+    # slice = zoom(slice, (patch_size[0] / x, patch_size[1] / y), order=0)
+    input = torch.from_numpy(slice).unsqueeze(
+        0).float()
+    if torch.backends.mps.is_available():
+        input = input.to("mps")
+    else:
+        input = input.cuda()
 
-        net.eval()
-        with torch.no_grad():
-            out = torch.argmax(torch.softmax(
-                net(input), dim=1), dim=1).squeeze(0)
-            out = out.cpu().detach().numpy()
-            pred = zoom(out, (x / patch_size[0], y / patch_size[1]), order=0)
-            prediction[ind] = pred
+    net.eval()
+    with torch.no_grad():
+        out = torch.argmax(torch.softmax(
+            net(input), dim=1), dim=1).squeeze(0)
+        out = out.cpu().detach().numpy()
+        # pred = zoom(out, (x / patch_size[0], y / patch_size[1]), order=0)
+        prediction = out # pred
     metric_list = []
-    for i in range(1, classes):
-        metric_list.append(calculate_metric_percase(
-            prediction == i, label == i))
+    # for i in range(1, classes):
+    metric_list.append(calculate_metric_percase(
+        prediction == 1, label == 1))
     return metric_list
 
 
