@@ -163,15 +163,18 @@ def train(args, snapshot_path):
             ema_inputs = unlabeled_volume_batch + noise
 
             outputs = model(volume_batch)
+            print(volume_batch.shape, outputs)
             outputs_soft = torch.softmax(outputs, dim=1)
             with torch.no_grad():
                 ema_output = ema_model(ema_inputs)
                 ema_output_soft = torch.softmax(ema_output, dim=1)
 
+            print(outputs[:args.labeled_bs].shape, label_batch[:][:args.labeled_bs].shape, 
+                  torch.count_nonzero(outputs[:args.labeled_bs]), torch.count_nonzero(label_batch[:][:args.labeled_bs]))
             loss_ce = ce_loss(outputs[:args.labeled_bs],
                               label_batch[:][:args.labeled_bs])
             loss_dice = dice_loss(
-                outputs_soft[:args.labeled_bs], label_batch[:args.labeled_bs])
+                outputs_soft[:args.labeled_bs], label_batch[:args.labeled_bs])  #_, _.unsqueeze(1)
             supervised_loss = 0.5 * (loss_dice + loss_ce)
             consistency_weight = get_current_consistency_weight(iter_num//150)
             if iter_num < 1000:
@@ -209,7 +212,7 @@ def train(args, snapshot_path):
                     outputs, dim=1), dim=1, keepdim=True)
                 writer.add_image('train/Prediction',
                                  outputs[1, ...] * 50, iter_num)
-                labs = label_batch[1, ...] * 50
+                labs = label_batch[1, ...] * 50 # .unsqueeze(0)
                 writer.add_image('train/GroundTruth', labs, iter_num)
 
             if iter_num > 0 and iter_num % 200 == 0:
@@ -242,6 +245,7 @@ def train(args, snapshot_path):
                     torch.save(model.state_dict(), save_mode_path)
                     torch.save(model.state_dict(), save_best)
 
+                # iteration 3400 : mean_dice : 0.000000 mean_hd95 : 0.000000
                 logging.info(
                     'iteration %d : mean_dice : %f mean_hd95 : %f' % (iter_num, performance, mean_hd95))
                 model.train()
