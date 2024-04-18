@@ -119,7 +119,7 @@ def train(args, snapshot_path):
     print("Total silices is: {}, labeled slices is: {}".format(
         total_slices, 0))
 
-    trainloader = DataLoader(db_train,
+    trainloader = DataLoader(db_train, batch_size=batch_size,
                              num_workers=0, pin_memory=True, worker_init_fn=worker_init_fn)
 
     model.train()
@@ -153,18 +153,19 @@ def train(args, snapshot_path):
             # if torch.count_nonzero(outputs_soft[:args.labeled_bs]) != 524288:
             #     print("out", torch.count_nonzero(outputs_soft[:args.labeled_bs]), "lab", torch.count_nonzero(label_batch[:args.labeled_bs]))
             loss_dice = dice_loss(
-                outputs_soft[:args.labeled_bs], label_batch[:args.labeled_bs])
-            supervised_loss = 0.5 * loss_dice
-            consistency_weight = get_current_consistency_weight(iter_num//150)
-            if iter_num < 1000:
-                consistency_loss = 0.0
-            else:
-                consistency_loss = torch.mean(
-                    (outputs_soft[args.labeled_bs:])**2)
+                outputs_soft, label_batch)
+            # supervised_loss = 0.5 * loss_dice
+            # consistency_weight = get_current_consistency_weight(iter_num//150)
+            # if iter_num < 1000:
+            #     consistency_loss = 0.0
+            # else:
+            #     consistency_loss = torch.mean(
+            #         (outputs_soft[args.labeled_bs:])**2)
                 
-            loss = supervised_loss + consistency_weight * consistency_loss
+            # loss = supervised_loss + consistency_weight * consistency_loss
+            print("ld: ", loss_dice)
             optimizer.zero_grad()
-            loss.backward()
+            loss_dice.backward()
             optimizer.step()
 
             lr_ = base_lr * (1.0 - iter_num / max_iterations) ** 0.9
@@ -173,16 +174,16 @@ def train(args, snapshot_path):
 
             iter_num = iter_num + 1
             writer.add_scalar('info/lr', lr_, iter_num)
-            writer.add_scalar('info/total_loss', loss, iter_num)
+            # writer.add_scalar('info/total_loss', loss, iter_num)
             writer.add_scalar('info/loss_dice', loss_dice, iter_num)
-            writer.add_scalar('info/consistency_loss',
-                              consistency_loss, iter_num)
-            writer.add_scalar('info/consistency_weight',
-                              consistency_weight, iter_num)
+            # writer.add_scalar('info/consistency_loss',
+            #                   consistency_loss, iter_num)
+            # writer.add_scalar('info/consistency_weight',
+            #                   consistency_weight, iter_num)
 
             logging.info(
-                'iteration %d : loss : %f, loss_dice: %f' %
-                (iter_num, loss.item(), loss_dice.item()))
+                'iteration : %d loss_dice: %f' %
+                (iter_num, loss_dice.item()))
 
             if iter_num % 20 == 0:
                 image = volume_batch[0, 1:3, :, :]
@@ -256,8 +257,8 @@ if __name__ == "__main__":
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
 
-    snapshot_path = "../model/{}_{}_labeled/{}".format(
-        args.exp, args.labeled_num, args.model)
+    snapshot_path = "../model/{}/{}".format(
+        args.exp, args.model)
     if not os.path.exists(snapshot_path):
         os.makedirs(snapshot_path)
     if os.path.exists(snapshot_path + '/code'):
