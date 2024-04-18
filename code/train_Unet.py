@@ -13,17 +13,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from tensorboardX import SummaryWriter
-from torch.nn import BCEWithLogitsLoss
-from torch.nn.modules.loss import CrossEntropyLoss
 from torch.utils.data import DataLoader
-from torchvision import transforms
-from torchvision.utils import make_grid
 from tqdm import tqdm
 
 from dataloaders import utils
-from dataloaders.CaBuAr import (CaBuAr, RandomNoise)
+from dataloaders.CaBuAr import CaBuAr
 from networks.net_factory import net_factory
-from utils import losses, metrics, ramps
+from utils import losses, ramps
 from val_2D import test_single_volume_cbr
 
 parser = argparse.ArgumentParser()
@@ -149,21 +145,8 @@ def train(args, snapshot_path):
             outputs = model(volume_batch)
             outputs_soft = torch.softmax(outputs, dim=1)
 
-            # print(torch.count_nonzero(volume_batch), torch.count_nonzero(label_batch))
-            # if torch.count_nonzero(outputs_soft[:args.labeled_bs]) != 524288:
-            #     print("out", torch.count_nonzero(outputs_soft[:args.labeled_bs]), "lab", torch.count_nonzero(label_batch[:args.labeled_bs]))
             loss_dice = dice_loss(
                 outputs_soft, label_batch)
-            # supervised_loss = 0.5 * loss_dice
-            # consistency_weight = get_current_consistency_weight(iter_num//150)
-            # if iter_num < 1000:
-            #     consistency_loss = 0.0
-            # else:
-            #     consistency_loss = torch.mean(
-            #         (outputs_soft[args.labeled_bs:])**2)
-                
-            # loss = supervised_loss + consistency_weight * consistency_loss
-            print("ld: ", loss_dice)
             optimizer.zero_grad()
             loss_dice.backward()
             optimizer.step()
@@ -174,12 +157,7 @@ def train(args, snapshot_path):
 
             iter_num = iter_num + 1
             writer.add_scalar('info/lr', lr_, iter_num)
-            # writer.add_scalar('info/total_loss', loss, iter_num)
             writer.add_scalar('info/loss_dice', loss_dice, iter_num)
-            # writer.add_scalar('info/consistency_loss',
-            #                   consistency_loss, iter_num)
-            # writer.add_scalar('info/consistency_weight',
-            #                   consistency_weight, iter_num)
 
             logging.info(
                 'iteration : %d loss_dice: %f' %
@@ -223,7 +201,6 @@ def train(args, snapshot_path):
                     save_best = os.path.join(snapshot_path,
                                              '{}_best_model.pth'.format(args.model))
                     torch.save(model.state_dict(), save_mode_path)
-                    print(model.state_dict())
                     torch.save(model.state_dict(), save_best)
 
                 logging.info(
@@ -234,7 +211,6 @@ def train(args, snapshot_path):
                 save_mode_path = os.path.join(
                     snapshot_path, 'iter_' + str(iter_num) + '.pth')
                 torch.save(model.state_dict(), save_mode_path)
-                print(model.state_dict())
                 logging.info("save model to {}".format(save_mode_path))
 
             if iter_num >= max_iterations:

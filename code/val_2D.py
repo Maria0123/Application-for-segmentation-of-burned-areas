@@ -5,7 +5,6 @@ from scipy.ndimage import zoom
 
 
 def calculate_metric_percase(pred, gt):
-    # print("pred:", np.count_nonzero(pred), "gt:", np.count_nonzero(gt))
     pred[pred > 0] = 1
     gt[gt > 0] = 1
     if pred.sum() > 0:
@@ -84,7 +83,6 @@ def test_single_volume_cbr(image, label, net, classes, patch_size=[12, 512, 512]
 
     slice = image
     x, y, z = slice.shape[0], slice.shape[1], slice.shape[2]
-    # slice = zoom(slice, (patch_size[0] / x, patch_size[1] / y, patch_size[2] / z), order=0)
     input = torch.from_numpy(slice).unsqueeze(
         0).float()
     if torch.backends.mps.is_available():
@@ -95,16 +93,11 @@ def test_single_volume_cbr(image, label, net, classes, patch_size=[12, 512, 512]
     net.eval()
     with torch.no_grad():
         net_out = net(input)
-        # print("net_out", torch.count_nonzero(net_out))
         out = torch.argmax(torch.softmax(
             net_out, dim=1), dim=1)
         out = out.cpu().detach().numpy()
-        # pred = zoom(out, (x / patch_size[0], y / patch_size[1]), order=0)
-        prediction = out # pred
-    # print("pred", prediction.shape)
+        prediction = out
     metric_list = []
     metric_list.append(calculate_metric_percase(prediction, label))
     
-    # TO DO to chyba zwraca zawsze 0...
-    # iteration 3400 : mean_dice : 0.000000 mean_hd95 : 0.000000
     return metric_list

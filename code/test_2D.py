@@ -3,7 +3,6 @@ import os
 import shutil
 
 import h5py
-import nibabel as nib
 import numpy as np
 import SimpleITK as sitk
 import torch
@@ -48,7 +47,6 @@ def test_single_volume(case, net, test_save_path, FLAGS, writer):
     prediction = np.zeros_like(label)
 
     slice = image
-    x, y, z = slice.shape[0], slice.shape[1], slice.shape[2]
     input = torch.from_numpy(slice).unsqueeze(
         0).float()
     if torch.backends.mps.is_available():
@@ -107,8 +105,6 @@ def Inference(FLAGS):
     net.eval()
 
     first_total = 0.0
-    second_total = 0.0
-    third_total = 0.0
     for case in tqdm(image_list):
         first_metric = test_single_volume(
             case, net, test_save_path, FLAGS, writer)
