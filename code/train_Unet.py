@@ -195,7 +195,7 @@ def train(args, snapshot_path):
                 labs = label_batch[0, ...] * 50
                 writer.add_image('train/GroundTruth', labs, iter_num)
 
-            if iter_num > 0 and iter_num % 3000 == 0:
+            if iter_num > 0 and iter_num % 300 == 0:
                 model.eval()
                 metric_list = 0.0
                 for i_batch, sampled_batch in enumerate(valloader):
@@ -223,16 +223,18 @@ def train(args, snapshot_path):
                     save_best = os.path.join(snapshot_path,
                                              '{}_best_model.pth'.format(args.model))
                     torch.save(model.state_dict(), save_mode_path)
+                    print(model.state_dict())
                     torch.save(model.state_dict(), save_best)
 
                 logging.info(
                     'iteration %d : mean_dice : %f mean_hd95 : %f' % (iter_num, performance, mean_hd95))
                 model.train()
 
-            if iter_num % 3000 == 0:
+            if iter_num % 300 == 0:
                 save_mode_path = os.path.join(
                     snapshot_path, 'iter_' + str(iter_num) + '.pth')
                 torch.save(model.state_dict(), save_mode_path)
+                print(model.state_dict())
                 logging.info("save model to {}".format(save_mode_path))
 
             if iter_num >= max_iterations:

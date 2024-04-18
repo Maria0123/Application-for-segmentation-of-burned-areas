@@ -6,8 +6,6 @@ california_slice_102
 california_slice_103
 california_slice_104
 california_slice_105
-california_slice_106
-california_slice_109
 california_slice_126
 california_slice_128
 california_slice_129
@@ -43,8 +41,6 @@ california_slice_160
 california_slice_161
 california_slice_162
 california_slice_163
-california_slice_164
-california_slice_166
 california_slice_167
 california_slice_168
 california_slice_173
@@ -62,8 +58,6 @@ california_slice_196
 california_slice_197
 california_slice_198
 california_slice_199
-california_slice_2
-california_slice_200
 california_slice_201
 california_slice_214
 california_slice_215
@@ -85,8 +79,6 @@ california_slice_239
 california_slice_240
 california_slice_247
 california_slice_252
-california_slice_258
-california_slice_259
 california_slice_261
 california_slice_262
 california_slice_266
@@ -117,8 +109,6 @@ california_slice_356
 california_slice_360
 california_slice_361
 california_slice_362
-california_slice_363
-california_slice_367
 california_slice_368
 california_slice_369
 california_slice_37
@@ -141,8 +131,6 @@ california_slice_394
 california_slice_395
 california_slice_396
 california_slice_397
-california_slice_398
-california_slice_399
 california_slice_4
 california_slice_40
 california_slice_400
@@ -152,8 +140,6 @@ california_slice_41
 california_slice_417
 california_slice_418
 california_slice_419
-california_slice_42
-california_slice_420
 california_slice_421
 california_slice_422
 california_slice_423
@@ -209,8 +195,6 @@ california_slice_54
 california_slice_540
 california_slice_541
 california_slice_542
-california_slice_543
-california_slice_544
 california_slice_545
 california_slice_546
 california_slice_547
@@ -230,14 +214,11 @@ california_slice_570
 california_slice_571
 california_slice_574
 california_slice_575
-california_slice_576
 california_slice_577
 california_slice_578
 california_slice_579
 california_slice_580
 california_slice_592
-california_slice_595
-california_slice_596
 california_slice_597
 california_slice_598
 california_slice_599
@@ -247,8 +228,6 @@ california_slice_602
 california_slice_604
 california_slice_606
 california_slice_607
-california_slice_608
-california_slice_609
 california_slice_61
 california_slice_610
 california_slice_611
@@ -271,8 +250,6 @@ california_slice_633
 california_slice_634
 california_slice_635
 california_slice_636
-california_slice_637
-california_slice_638
 california_slice_639
 california_slice_640
 california_slice_641
@@ -309,8 +286,6 @@ california_slice_711
 california_slice_712
 california_slice_713
 california_slice_717
-california_slice_718
-california_slice_719
 california_slice_723
 california_slice_724
 california_slice_725
@@ -327,3 +302,5 @@ california_slice_94
 california_slice_95
 california_slice_97
 california_slice_98
+california_slice_609
+california_slice_367
