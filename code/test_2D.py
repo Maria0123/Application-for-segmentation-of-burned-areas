@@ -36,9 +36,15 @@ def calculate_metric_percase(pred, gt):
        and np.count_nonzero(pred) > 0 and np.count_nonzero(gt) > 0:
         asd = metric.binary.asd(pred, gt)
         hd95 = metric.binary.hd95(pred, gt)
-        return dice, hd95, asd 
+        precision = metric.binary.precision(pred, gt)
+        recal = metric.binary.recall(pred, gt)
+        if precision + recal > 0:
+            f1 = 2 * (precision * recal) / (precision + recal)
+        else: 
+            f1 = 0
+        return dice, hd95, asd, f1
     else:
-        return dice, 1, 1 # TODO czy dobrze?
+        return dice, 0, 0, 0 # TODO czy dobrze?
 
 def test_single_volume(case, net, test_save_path, FLAGS, writer):
     h5f = h5py.File(FLAGS.root_path + "/data/slices/{}.h5".format(case), 'r')
@@ -82,7 +88,7 @@ def test_single_volume(case, net, test_save_path, FLAGS, writer):
 
 
 def Inference(FLAGS):
-    with open(FLAGS.root_path + '/test.list', 'r') as f:
+    with open(FLAGS.root_path + '/train.txt', 'r') as f:
         image_list = f.readlines()
     image_list = sorted([item.replace('\n', '').split(".")[0]
                          for item in image_list])
