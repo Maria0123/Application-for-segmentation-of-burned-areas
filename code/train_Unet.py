@@ -35,11 +35,11 @@ parser.add_argument('--batch_size', type=int, default=8,
                     help='batch_size per gpu')
 parser.add_argument('--deterministic', type=int,  default=1,
                     help='whether use deterministic training')
-parser.add_argument('--base_lr', type=float,  default=0.01,
+parser.add_argument('--base_lr', type=float,  default=0.001,
                     help='segmentation network learning rate')
 parser.add_argument('--patch_size', type=list,  default=[256, 256],
                     help='patch size of network input')
-parser.add_argument('--seed', type=int,  default=1337, help='random seed')
+parser.add_argument('--seed', type=int,  default=42, help='random seed')
 parser.add_argument('--num_classes', type=int,  default=2,
                     help='output channel of network')
 
@@ -164,7 +164,7 @@ def train(args, snapshot_path):
                 (iter_num, loss_dice.item()))
 
             if iter_num % 20 == 0:
-                image = volume_batch[0, 1:3, :, :]
+                image = volume_batch[0, 2:4, :, :]
                 writer.add_image('train/Image', image, iter_num)
                 outputs = torch.argmax(torch.softmax(
                     outputs, dim=1), dim=1, keepdim=True)
@@ -186,13 +186,18 @@ def train(args, snapshot_path):
                                       metric_list[class_i, 0], iter_num)
                     writer.add_scalar('info/val_{}_hd95'.format(class_i+1),
                                       metric_list[class_i, 1], iter_num)
-
+                    writer.add_scalar('info/val_{}_jc'.format(class_i+1),
+                                      metric_list[class_i, 2], iter_num)
+                    writer.add_scalar('info/val_{}_f1'.format(class_i+1),
+                                      metric_list[class_i, 3], iter_num)
                 performance = np.mean(metric_list, axis=0)[0]
 
-                mean_hd95 = np.mean(metric_list, axis=0)[1]
+                mean_hd95 = np.mean(metric_list, axis=0)
                 writer.add_scalar('info/val_mean_dice', performance, iter_num)
-                writer.add_scalar('info/val_mean_hd95', mean_hd95, iter_num)
-
+                writer.add_scalar('info/val_mean_hd95', mean_hd95[1], iter_num)
+                writer.add_scalar('info/val_mean_jc', mean_hd95[2], iter_num)
+                writer.add_scalar('info/val_mean_f1', mean_hd95[3], iter_num)
+                
                 if performance > best_performance:
                     best_performance = performance
                     save_mode_path = os.path.join(snapshot_path,
@@ -204,7 +209,8 @@ def train(args, snapshot_path):
                     torch.save(model.state_dict(), save_best)
 
                 logging.info(
-                    'iteration %d : mean_dice : %f mean_hd95 : %f' % (iter_num, performance, mean_hd95))
+                    'iteration %d : mean_dice : %f mean_hd95 : %f mean_jc : %f mean_f1 : %f' % 
+                        (iter_num, performance, mean_hd95[1], mean_hd95[2], mean_hd95[3]))
                 model.train()
 
             if iter_num % 300 == 0:

@@ -38,13 +38,12 @@ def calculate_metric_percase(pred, gt):
         hd95 = metric.binary.hd95(pred, gt)
         precision = metric.binary.precision(pred, gt)
         recal = metric.binary.recall(pred, gt)
-        if precision + recal > 0:
-            f1 = 2 * (precision * recal) / (precision + recal)
-        else: 
-            f1 = 0
-        return dice, hd95, asd, f1
+        jc = metric.binary.jc(pred, gt)
+        f1 = 2 * (precision * recal) / (precision + recal + 1e-5)
+
+        return dice, hd95, asd, jc, f1
     else:
-        return dice, 0, 0, 0 # TODO czy dobrze?
+        return dice, 0, 0, 0, 0 # TODO czy dobrze?
 
 def test_single_volume(case, net, test_save_path, FLAGS, writer):
     h5f = h5py.File(FLAGS.root_path + "/data/slices/{}.h5".format(case), 'r')
@@ -71,14 +70,14 @@ def test_single_volume(case, net, test_save_path, FLAGS, writer):
     first_metric = calculate_metric_percase(prediction, label)
 
     img_itk = sitk.GetImageFromArray(image.astype(np.float32))
-    img_itk.SetSpacing((1, 1, 10))
+    # img_itk.SetSpacing((1, 1, 10))
     prd_itk = sitk.GetImageFromArray(prediction.astype(np.float32))
-    prd_itk.SetSpacing((1, 1, 10))
+    # prd_itk.SetSpacing((1, 1, 10))
     lab_itk = sitk.GetImageFromArray(label.astype(np.float32))
-    lab_itk.SetSpacing((1, 1, 10))
-    sitk.WriteImage(prd_itk, test_save_path + case + "_pred.nii.gz")
-    sitk.WriteImage(img_itk, test_save_path + case + "_img.nii.gz")
-    sitk.WriteImage(lab_itk, test_save_path + case + "_gt.nii.gz")
+    # lab_itk.SetSpacing((1, 1, 10))
+    # sitk.WriteImage(prd_itk, test_save_path + case + "_pred.nii.gz")
+    # sitk.WriteImage(img_itk, test_save_path + case + "_img.nii.gz")
+    # sitk.WriteImage(lab_itk, test_save_path + case + "_gt.nii.gz")
 
     writer.add_image("Image", image[1:3, :, :], case[17:])
     writer.add_image("Prediction", prediction * 50, case[17:])
@@ -88,7 +87,7 @@ def test_single_volume(case, net, test_save_path, FLAGS, writer):
 
 
 def Inference(FLAGS):
-    with open(FLAGS.root_path + '/train.txt', 'r') as f:
+    with open(FLAGS.root_path + '/test.list', 'r') as f:
         image_list = f.readlines()
     image_list = sorted([item.replace('\n', '').split(".")[0]
                          for item in image_list])
