@@ -55,7 +55,7 @@ def test_single_volume(case, net, test_save_path, FLAGS, writer):
     input = torch.from_numpy(slice).unsqueeze(
         0).float()
     if torch.backends.mps.is_available():
-        input = input.to("mps")
+        input = input.to(torch.float32).to("mps")
     else:
         input = input.cuda()
 
