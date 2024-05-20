@@ -3,6 +3,7 @@ from torch.nn import functional as F
 import numpy as np
 import torch.nn as nn
 from torch.autograd import Variable
+from medpy import metric
 
 
 def dice_loss(score, target):
@@ -195,7 +196,45 @@ class DiceLoss(nn.Module):
             loss += dice * weight[i]
         return loss / self.n_classes
 
+class HD95Loss(nn.Module):
+    def __init__(self, n_classes):
+        super(HD95Loss, self).__init__()
+        self.n_classes = n_classes
 
+    def _one_hot_encoder(self, input_tensor):
+        tensor_list = []
+        for i in range(self.n_classes):
+            temp_prob = input_tensor == i * torch.ones_like(input_tensor)
+            tensor_list.append(temp_prob)
+        output_tensor = torch.cat(tensor_list, dim=1)
+        return output_tensor.float()
+
+    def _hd95(self, score, target):
+        score_np = score.cpu().detach().numpy()
+        target_np = target.cpu().detach().numpy()
+
+        score_coords = np.argwhere(score_np)
+        target_coords = np.argwhere(target_np)
+
+        if len(score_coords) == 0 or len(target_coords) == 0:
+            return 0.0
+
+        hd95 = metric.binary.hd95(score_np, target_np)
+        return hd95
+
+    def forward(self, inputs, target, softmax=False):
+        if softmax:
+            inputs = torch.softmax(inputs, dim=1)
+        target = self._one_hot_encoder(target)
+        assert inputs.size() == target.size(), 'predict & target shape do not match'
+        class_wise_hd95 = []
+        loss = 0.0
+        for i in range(0, self.n_classes):
+            hd95 = self._hd95(inputs[:, i], target[:, i])
+            class_wise_hd95.append(hd95.item())
+            loss += hd95
+        return loss / self.n_classes / 100
+    
 def entropy_minmization(p):
     y1 = -1*torch.sum(p*torch.log(p+1e-6), dim=1)
     ent = torch.mean(y1)
