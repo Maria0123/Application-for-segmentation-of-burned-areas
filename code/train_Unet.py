@@ -43,48 +43,7 @@ parser.add_argument('--seed', type=int,  default=42, help='random seed')
 parser.add_argument('--num_classes', type=int,  default=2,
                     help='output channel of network')
 
-# label and unlabel
-parser.add_argument('--labeled_bs', type=int, default=12,
-                    help='labeled_batch_size per gpu')
-parser.add_argument('--labeled_num', type=int, default=136,
-                    help='labeled data')
-# costs
-parser.add_argument('--ema_decay', type=float,  default=0.99, help='ema_decay')
-parser.add_argument('--consistency_type', type=str,
-                    default="mse", help='consistency_type')
-parser.add_argument('--consistency', type=float,
-                    default=0.1, help='consistency')
-parser.add_argument('--consistency_rampup', type=float,
-                    default=200.0, help='consistency_rampup')
 args = parser.parse_args()
-
-
-def patients_to_slices(dataset, patiens_num):
-    ref_dict = None
-    if "ACDC" in dataset:
-        ref_dict = {"3": 68, "7": 136,
-                    "14": 256, "21": 396, "28": 512, "35": 664, "140": 1312}
-    elif "Prostate":
-        ref_dict = {"2": 27, "4": 53, "8": 120,
-                    "12": 179, "16": 256, "21": 312, "42": 623}
-    elif "CaBuAr" in dataset:
-        ref_dict = {"3": 15, "7": 70, "13": 150}
-    else:
-        print("Error")
-    return ref_dict[str(patiens_num)]
-
-
-def get_current_consistency_weight(epoch):
-    # Consistency ramp-up from https://arxiv.org/abs/1610.02242
-    return args.consistency * ramps.sigmoid_rampup(epoch, args.consistency_rampup)
-
-
-def update_ema_variables(model, ema_model, alpha, global_step):
-    # Use the true average until the exponential average is more correct
-    alpha = min(1 - 1 / (global_step + 1), alpha)
-    for ema_param, param in zip(ema_model.parameters(), model.parameters()):
-        ema_param.data.mul_(alpha).add_(1 - alpha, param.data)
-
 
 def train(args, snapshot_path):
     base_lr = args.base_lr
@@ -96,9 +55,7 @@ def train(args, snapshot_path):
         # Network definition
         model = net_factory(net_type=args.model, in_chns=12,
                             class_num=num_classes)
-        if ema:
-            for param in model.parameters():
-                param.detach_()
+
         return model
 
     model = create_model()
@@ -112,8 +69,7 @@ def train(args, snapshot_path):
     db_val = CaBuAr(base_dir=args.root_path, split="val")
 
     total_slices = len(db_train)
-    print("Total silices is: {}, labeled slices is: {}".format(
-        total_slices, 0))
+    print("Total silices is: {}".format(total_slices))
 
     trainloader = DataLoader(db_train, batch_size=batch_size,
                              num_workers=0, pin_memory=True, worker_init_fn=worker_init_fn)

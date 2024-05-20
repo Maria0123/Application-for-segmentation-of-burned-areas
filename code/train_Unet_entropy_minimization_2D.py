@@ -153,7 +153,7 @@ def train(args, snapshot_path):
             supervised_loss = 0.5 * (loss_dice + loss_ce)
 
             consistency_weight = get_current_consistency_weight(iter_num//150)
-            consistency_loss = losses.entropy_loss(outputs_soft, C=4)
+            consistency_loss = losses.entropy_loss(outputs_soft, C=4) # potencjalnie powinna być jakaś 12 xd
             loss = supervised_loss + consistency_weight * consistency_loss
             optimizer.zero_grad()
             loss.backward()
