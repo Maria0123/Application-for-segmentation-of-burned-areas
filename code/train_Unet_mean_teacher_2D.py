@@ -157,7 +157,7 @@ def train(args, snapshot_path):
             if torch.backends.mps.is_available():
                 volume_batch, label_batch = volume_batch.to(torch.float32).to("mps"), label_batch.to(torch.float32).to("mps")
             else:
-                volume_batch, label_batch = volume_batch.to(torch.float32).cuda(), label_batch.to(torch.float32).cuda()
+                volume_batch, label_batch = volume_batch.cuda(), label_batch.type(torch.LongTensor).cuda()
             
             unlabeled_volume_batch = volume_batch[args.labeled_bs:]
 
@@ -179,7 +179,7 @@ def train(args, snapshot_path):
             loss_hd95 = hd95_loss(outputs_soft[:args.labeled_bs], 
                                   label_batch[:args.labeled_bs]) if args.alpha_hd == 1 else 0
             
-            supervised_loss = 0.5 * (loss_dice + loss_ce + loss_hd95)
+            supervised_loss = 0.5 * (loss_dice + loss_ce + 0.5 * loss_hd95)
             consistency_weight = get_current_consistency_weight(iter_num//150)
             if iter_num < 1000:
                 consistency_loss = 0.0
