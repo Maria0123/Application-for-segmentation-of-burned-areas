@@ -58,6 +58,10 @@ parser.add_argument('--consistency', type=float,
                     default=0.1, help='consistency')
 parser.add_argument('--consistency_rampup', type=float,
                     default=200.0, help='consistency_rampup')
+
+# loss function
+parser.add_argument('--alpha_hd', type=int,  default=1, help='hd95 loss weight')
+
 args = parser.parse_args()
 
 
@@ -137,6 +141,7 @@ def train(args, snapshot_path):
 
     ce_loss = CrossEntropyLoss()                      
     dice_loss = losses.DiceLoss(num_classes)
+    hd95_loss = losses.HD95Loss(num_classes)
 
     writer = SummaryWriter(snapshot_path + '/log')
     logging.info("{} iterations per epoch".format(len(trainloader)))
@@ -171,8 +176,10 @@ def train(args, snapshot_path):
                                 label_batch[:args.labeled_bs].squeeze())
             loss_dice = dice_loss(outputs_soft[:args.labeled_bs], 
                                   label_batch[:args.labeled_bs])
+            loss_hd95 = hd95_loss(outputs_soft[:args.labeled_bs], 
+                                  label_batch[:args.labeled_bs]) if args.alpha_hd == 1 else 0
             
-            supervised_loss = 0.5 * (loss_dice + loss_ce)
+            supervised_loss = 0.5 * (loss_dice + loss_ce + loss_hd95)
             consistency_weight = get_current_consistency_weight(iter_num//150)
             if iter_num < 1000:
                 consistency_loss = 0.0
@@ -201,8 +208,8 @@ def train(args, snapshot_path):
                               consistency_weight, iter_num)
 
             logging.info(
-                'iteration %d : loss : %f, loss_ce: %f, loss_dice: %f' %
-                (iter_num, loss.item(), loss_ce.item(), loss_dice.item()))
+                'iteration %d : loss : %f, loss_ce: %f, loss_dice: %f, loss_hd95: %f' %
+                (iter_num, loss.item(), loss_ce.item(), loss_dice.item(), loss_hd95.item()))
 
             if iter_num % 20 == 0:
                 image = volume_batch[0, 2:4, :, :]
