@@ -12,6 +12,7 @@ import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.optim.lr_scheduler import StepLR
 from tensorboardX import SummaryWriter
 from torch.nn import BCEWithLogitsLoss
 from torch.nn.modules.loss import CrossEntropyLoss
@@ -42,7 +43,7 @@ parser.add_argument('--batch_size', type=int, default=8,
                     help='batch_size per gpu')
 parser.add_argument('--deterministic', type=int,  default=1,
                     help='whether use deterministic training')
-parser.add_argument('--base_lr', type=float,  default=0.01,
+parser.add_argument('--base_lr', type=float,  default=0.001,
                     help='segmentation network learning rate')
 parser.add_argument('--patch_size', type=list,  default=[512, 512],
                     help='patch size of network input')
@@ -63,6 +64,10 @@ parser.add_argument('--consistency', type=float,
                     default=0.1, help='consistency')
 parser.add_argument('--consistency_rampup', type=float,
                     default=200.0, help='consistency_rampup')
+
+# loss function
+parser.add_argument('--alpha_hd', type=float,  default=0.6, help='hd95 loss weight')
+
 args = parser.parse_args()
 
 
@@ -119,11 +124,12 @@ def train(args, snapshot_path):
 
     model.train()
 
-    optimizer = optim.SGD(model.parameters(), lr=base_lr,
-                          momentum=0.9, weight_decay=0.0001)
+    optimizer = optim.AdamW(model.parameters(), lr=base_lr, weight_decay=0.01)
+    scheduler = StepLR(optimizer, step_size=15, gamma=0.1)
 
     ce_loss = CrossEntropyLoss()
     dice_loss = losses.DiceLoss(num_classes)
+    hd95_loss = losses.HD95Loss(num_classes)
 
     writer = SummaryWriter(snapshot_path + '/log')
     logging.info("{} iterations per epoch".format(len(trainloader)))
@@ -139,7 +145,7 @@ def train(args, snapshot_path):
             if torch.backends.mps.is_available():
                 volume_batch, label_batch = volume_batch.to(torch.float32).to("mps"), label_batch.to(torch.float32).to("mps")
             else:
-                volume_batch, label_batch = volume_batch.to(torch.float32).cuda(), label_batch.to(torch.float32).cuda()
+                volume_batch, label_batch = volume_batch.cuda(), label_batch.type(torch.LongTensor).cuda()
             
             unlabeled_volume_batch = volume_batch[args.labeled_bs:]
 
@@ -150,11 +156,14 @@ def train(args, snapshot_path):
                               label_batch[:args.labeled_bs].squeeze())
             loss_dice = dice_loss(
                 outputs_soft[:args.labeled_bs], label_batch[:args.labeled_bs])
-            supervised_loss = 0.5 * (loss_dice + loss_ce)
+            loss_hd95 = hd95_loss(
+                outputs_soft[:args.labeled_bs], label_batch[:args.labeled_bs])
+            supervised_loss = 0.5 * (loss_dice + loss_ce + args.alpha_hd * loss_hd95)
 
             consistency_weight = get_current_consistency_weight(iter_num//150)
-            consistency_loss = losses.entropy_loss(outputs_soft, C=4) # potencjalnie powinna być jakaś 12 xd
+            consistency_loss = losses.entropy_loss(outputs_soft, C=12)
             loss = supervised_loss + consistency_weight * consistency_loss
+
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -229,6 +238,9 @@ def train(args, snapshot_path):
 
             if iter_num >= max_iterations:
                 break
+
+        scheduler.step()
+
         if iter_num >= max_iterations:
             iterator.close()
             break
