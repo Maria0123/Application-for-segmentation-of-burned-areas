@@ -15,10 +15,11 @@ import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR
 from tensorboardX import SummaryWriter
 from torch.utils.data import DataLoader
+from torchvision import transforms
 from tqdm import tqdm
 
 from dataloaders import utils
-from dataloaders.CaBuAr import CaBuAr
+from dataloaders.CaBuAr import CaBuAr, RandomFlip, RandomNoise, ToTensor
 from networks.net_factory import net_factory
 from utils import losses, ramps
 from val_2D import test_single_volume_cbr
@@ -64,9 +65,11 @@ def train(args, snapshot_path):
     def worker_init_fn(worker_id):
         random.seed(args.seed + worker_id)
 
-    db_train = CaBuAr(base_dir=args.root_path, split="train", num=None) #, transform=transforms.Compose([
-        # RandomNoise()
-    #]))
+    db_train = CaBuAr(base_dir=args.root_path, split="train", num=None, transform=transforms.Compose([
+        RandomNoise(),
+        RandomFlip(),
+        ToTensor()
+    ]))
     db_val = CaBuAr(base_dir=args.root_path, split="val")
 
     total_slices = len(db_train)

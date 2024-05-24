@@ -71,6 +71,43 @@ class CaBuAr(Dataset):
         sample["idx"] = idx
         return sample
 
+class RandomFlip(object):
+    def __make_transform__(self, image, transform, angle = -1):
+        img = torch.tensor([])
+        for i in range(image.shape[0]):
+            img_PIL = transforms.ToPILImage()(image[i])
+            img_t = transform(img_PIL) if angle == -1 else transform(img_PIL, angle)
+            img_t = transforms.ToTensor()(img_t)
+            img = torch.cat((img, img_t), dim = 0)
+        
+        return img
+
+        
+    def __call__(self, sample):
+        image, label = sample['image'], sample['label']
+
+        if torch.rand(1) < 0.5:
+            transform = transforms.functional.hflip
+            image2 = image.copy()
+            image2 = self.__make_transform__(image2, transform)
+            image = self.__make_transform__(image, transform)
+            assert image == image2
+            print("pass")
+            label = self.__make_transform__(label, transform)
+
+        if torch.rand(1) < 0.5:
+            transform = transforms.functional.vflip
+            image = self.__make_transform__(image, transform)
+            label = self.__make_transform__(label, transform)
+
+        if torch.rand(1) < 0.5:
+            angle = torch.randint(0, 360, (1,)).item()  
+            transform = transforms.functional.rotate
+            image = self.__make_transform__(image, transform, angle)
+            label = self.__make_transform__(label, transform, angle)
+
+        return {'image': image, 'label': label}
+
 class RandomNoise(object):
     def __init__(self, mu=0, sigma=0.1):
         self.mu = mu
@@ -83,3 +120,19 @@ class RandomNoise(object):
         noise = noise + self.mu
         image = image + noise
         return {'image': image, 'label': label}
+    
+class ToTensor(object):
+    """Convert ndarrays in sample to Tensors."""
+
+    def __call__(self, sample):
+        image = sample['image']
+
+        if type(image) is torch.Tensor:
+            return sample
+        image = image.reshape(
+            image.shape[0], image.shape[1], image.shape[2]).astype(np.float32)
+        if 'onehot_label' in sample:
+            return {'image': torch.from_numpy(image), 'label': torch.from_numpy(sample['label']).long(),
+                    'onehot_label': torch.from_numpy(sample['onehot_label']).long()}
+        else:
+            return {'image': torch.from_numpy(image), 'label': torch.from_numpy(sample['label']).long()}

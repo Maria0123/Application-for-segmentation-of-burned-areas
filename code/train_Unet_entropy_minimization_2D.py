@@ -21,7 +21,7 @@ from torchvision import transforms
 from torchvision.utils import make_grid
 from tqdm import tqdm
 
-from dataloaders.CaBuAr import CaBuAr
+from dataloaders.CaBuAr import CaBuAr, RandomFlip, RandomNoise, ToTensor
 from dataloaders import utils
 from dataloaders.dataset import (BaseDataSets, RandomGenerator,
                                  TwoStreamBatchSampler)
@@ -102,9 +102,11 @@ def train(args, snapshot_path):
 
     model = net_factory(net_type=args.model, in_chns=12, class_num=num_classes)
 
-    db_train = CaBuAr(base_dir=args.root_path, split="train", num=None) #, transform=transforms.Compose([
-        # RandomNoise()
-    #]))
+    db_train = CaBuAr(base_dir=args.root_path, split="train", num=None, transform=transforms.Compose([
+        RandomNoise(),
+        RandomFlip(),
+        ToTensor()
+    ]))
 
     total_slices = len(db_train)
     labeled_slice = patients_to_slices(args.root_path, args.labeled_num)
