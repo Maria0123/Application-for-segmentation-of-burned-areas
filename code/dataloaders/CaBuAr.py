@@ -88,11 +88,7 @@ class RandomFlip(object):
 
         if torch.rand(1) < 0.5:
             transform = transforms.functional.hflip
-            image2 = image.copy()
-            image2 = self.__make_transform__(image2, transform)
             image = self.__make_transform__(image, transform)
-            assert image == image2
-            print("pass")
             label = self.__make_transform__(label, transform)
 
         if torch.rand(1) < 0.5:
