@@ -12,6 +12,7 @@ import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.optim.lr_scheduler import StepLR
 from tensorboardX import SummaryWriter
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -26,7 +27,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--root_path', type=str,
                     default='../data/CaBuAr', help='Name of Experiment')
 parser.add_argument('--exp', type=str,
-                    default='CaBuAr/Unet', help='experiment_name')
+                    default='CaBuAr/aCBR', help='experiment_name')
 parser.add_argument('--model', type=str,
                     default='unet', help='model_name')
 parser.add_argument('--max_iterations', type=int,
@@ -80,6 +81,8 @@ def train(args, snapshot_path):
                            num_workers=0)
 
     optimizer = optim.AdamW(model.parameters(), lr=base_lr, weight_decay=0.01)
+    scheduler = StepLR(optimizer, step_size=15, gamma=0.1)
+
     dice_loss = losses.DiceLoss(num_classes)
     hd95_loss = losses.HD95Loss(num_classes)
     loss_ce = 0.0
@@ -186,6 +189,9 @@ def train(args, snapshot_path):
 
             if iter_num >= max_iterations:
                 break
+
+        scheduler.step()
+        
         if iter_num >= max_iterations:
             iterator.close()
             break
