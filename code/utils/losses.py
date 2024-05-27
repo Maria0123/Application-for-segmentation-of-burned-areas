@@ -4,6 +4,7 @@ import numpy as np
 import torch.nn as nn
 from torch.autograd import Variable
 from medpy import metric
+from scipy.spatial.distance import directed_hausdorff
 
 
 def dice_loss(score, target):
@@ -120,7 +121,15 @@ def symmetric_mse_loss(input1, input2):
     assert input1.size() == input2.size()
     return torch.mean((input1 - input2)**2)
 
-
+def hd95_loss(pred, target):
+    pred_np = pred.detach().cpu().numpy()
+    target_np = target.detach().cpu().numpy()
+    
+    hd95 = []
+    for p, t in zip(pred_np, target_np):
+        hd95.append(max(directed_hausdorff(p[0], t[0])[0], directed_hausdorff(t[0], p[0])[0]))
+    
+    return torch.tensor(np.percentile(hd95, 95), dtype=torch.float32)
 class FocalLoss(nn.Module):
     def __init__(self, gamma=2, alpha=None, size_average=True):
         super(FocalLoss, self).__init__()
@@ -158,83 +167,97 @@ class FocalLoss(nn.Module):
             return loss.sum()
 
 
-class DiceLoss(nn.Module):
-    def __init__(self, n_classes):
-        super(DiceLoss, self).__init__()
+# class DiceLoss(nn.Module):
+#     def __init__(self, n_classes):
+#         super(DiceLoss, self).__init__()
+#         self.n_classes = n_classes
+
+#     def _one_hot_encoder(self, input_tensor):
+#         tensor_list = []
+#         for i in range(self.n_classes):
+#             temp_prob = input_tensor == i * torch.ones_like(input_tensor)
+#             tensor_list.append(temp_prob)
+#         output_tensor = torch.cat(tensor_list, dim=1)
+#         return output_tensor.float()
+
+#     def _dice_loss(self, score, target):
+#         target = target.float()
+#         smooth = 1e-5
+#         intersect = torch.sum(score * target)
+#         y_sum = torch.sum(target * target)
+#         z_sum = torch.sum(score * score)
+#         loss = (2 * intersect + smooth) / (z_sum + y_sum + smooth)
+#         loss = 1 - loss
+#         return loss
+
+#     def forward(self, inputs, target, weight=None, softmax=False):
+#         if softmax:
+#             inputs = torch.softmax(inputs, dim=1)
+#         target = self._one_hot_encoder(target)
+#         if weight is None:
+#             weight = [1] * self.n_classes
+#         assert inputs.size() == target.size(), 'predict & target shape do not match'
+#         class_wise_dice = []
+#         loss = 0.0
+#         for i in range(0, self.n_classes):
+#             dice = self._dice_loss(inputs[:, i], target[:, i])
+#             class_wise_dice.append(1.0 - dice.item())
+#             loss += dice * weight[i]
+#         return loss / self.n_classes
+
+# class HD95Loss(nn.Module):
+#     def __init__(self, n_classes):
+#         super(HD95Loss, self).__init__()
+#         self.n_classes = n_classes
+
+#     def _one_hot_encoder(self, input_tensor):
+#         tensor_list = []
+#         for i in range(self.n_classes):
+#             temp_prob = input_tensor == i * torch.ones_like(input_tensor)
+#             tensor_list.append(temp_prob)
+#         output_tensor = torch.cat(tensor_list, dim=1)
+#         return output_tensor.float()
+
+#     def _hd95(self, score, target):
+#         score_np = score.cpu().detach().numpy()
+#         target_np = target.cpu().detach().numpy()
+
+#         score_coords = np.argwhere(score_np)
+#         target_coords = np.argwhere(target_np)
+
+#         if len(score_coords) == 0 or len(target_coords) == 0:
+#             return 0.0
+
+#         hd95 = metric.binary.hd95(score_np, target_np)
+#         return hd95
+
+#     def forward(self, inputs, target, softmax=False):
+#         if softmax:
+#             inputs = torch.softmax(inputs, dim=1)
+#         target = self._one_hot_encoder(target)
+#         assert inputs.size() == target.size(), 'predict & target shape do not match'
+#         class_wise_hd95 = []
+#         loss = 0.0
+#         for i in range(0, self.n_classes):
+#             hd95 = self._hd95(inputs[:, i], target[:, i])
+#             class_wise_hd95.append(hd95.item())
+#             loss += hd95
+#         return loss / self.n_classes / 100
+    
+class DiceHD95Loss(nn.Module):
+    def __init__(self, n_classes, alpha=0.5):
+        super(DiceHD95Loss, self).__init__()
         self.n_classes = n_classes
-
-    def _one_hot_encoder(self, input_tensor):
-        tensor_list = []
-        for i in range(self.n_classes):
-            temp_prob = input_tensor == i * torch.ones_like(input_tensor)
-            tensor_list.append(temp_prob)
-        output_tensor = torch.cat(tensor_list, dim=1)
-        return output_tensor.float()
-
-    def _dice_loss(self, score, target):
-        target = target.float()
-        smooth = 1e-5
-        intersect = torch.sum(score * target)
-        y_sum = torch.sum(target * target)
-        z_sum = torch.sum(score * score)
-        loss = (2 * intersect + smooth) / (z_sum + y_sum + smooth)
-        loss = 1 - loss
-        return loss
-
-    def forward(self, inputs, target, weight=None, softmax=False):
-        if softmax:
-            inputs = torch.softmax(inputs, dim=1)
-        target = self._one_hot_encoder(target)
-        if weight is None:
-            weight = [1] * self.n_classes
-        assert inputs.size() == target.size(), 'predict & target shape do not match'
-        class_wise_dice = []
-        loss = 0.0
-        for i in range(0, self.n_classes):
-            dice = self._dice_loss(inputs[:, i], target[:, i])
-            class_wise_dice.append(1.0 - dice.item())
-            loss += dice * weight[i]
-        return loss / self.n_classes
-
-class HD95Loss(nn.Module):
-    def __init__(self, n_classes):
-        super(HD95Loss, self).__init__()
-        self.n_classes = n_classes
-
-    def _one_hot_encoder(self, input_tensor):
-        tensor_list = []
-        for i in range(self.n_classes):
-            temp_prob = input_tensor == i * torch.ones_like(input_tensor)
-            tensor_list.append(temp_prob)
-        output_tensor = torch.cat(tensor_list, dim=1)
-        return output_tensor.float()
-
-    def _hd95(self, score, target):
-        score_np = score.cpu().detach().numpy()
-        target_np = target.cpu().detach().numpy()
-
-        score_coords = np.argwhere(score_np)
-        target_coords = np.argwhere(target_np)
-
-        if len(score_coords) == 0 or len(target_coords) == 0:
-            return 0.0
-
-        hd95 = metric.binary.hd95(score_np, target_np)
-        return hd95
+        self.alpha = alpha
 
     def forward(self, inputs, target, softmax=False):
-        if softmax:
-            inputs = torch.softmax(inputs, dim=1)
-        target = self._one_hot_encoder(target)
-        assert inputs.size() == target.size(), 'predict & target shape do not match'
-        class_wise_hd95 = []
-        loss = 0.0
-        for i in range(0, self.n_classes):
-            hd95 = self._hd95(inputs[:, i], target[:, i])
-            class_wise_hd95.append(hd95.item())
-            loss += hd95
-        return loss / self.n_classes / 100
-    
+        dice = dice_loss(inputs, target)
+        hd95 = hd95_loss(inputs, target)
+
+        hd95 = torch.sigmoid(hd95)
+
+        return self.alpha * dice + (1 - self.alpha) * hd95
+
 def entropy_minmization(p):
     y1 = -1*torch.sum(p*torch.log(p+1e-6), dim=1)
     ent = torch.mean(y1)

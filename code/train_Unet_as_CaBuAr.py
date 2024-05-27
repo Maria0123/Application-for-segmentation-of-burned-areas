@@ -44,8 +44,7 @@ parser.add_argument('--patch_size', type=list,  default=[512, 512],
 parser.add_argument('--seed', type=int,  default=42, help='random seed')
 parser.add_argument('--num_classes', type=int,  default=2,
                     help='output channel of network')
-parser.add_argument('--alpha_ce', type=float,  default=1, help='dice loss weight')
-parser.add_argument('--alpha_hd', type=float,  default=0, help='hd95 loss weight')
+parser.add_argument('--alpha_ce', type=float,  default=0.5, help='dice loss weight')
 
 args = parser.parse_args()
 
@@ -86,10 +85,7 @@ def train(args, snapshot_path):
     optimizer = optim.AdamW(model.parameters(), lr=base_lr, weight_decay=0.01)
     scheduler = StepLR(optimizer, step_size=15, gamma=0.1)
 
-    dice_loss = losses.DiceLoss(num_classes)
-    hd95_loss = losses.HD95Loss(num_classes)
-    loss_ce = 0.0
-    loss_hd = 0.0
+    loss_dc_hd = losses.DiceHD95Loss(num_classes, args.alpha_ce)
 
     writer = SummaryWriter(snapshot_path + '/log')
     logging.info("{} iterations per epoch".format(len(trainloader)))
@@ -109,13 +105,7 @@ def train(args, snapshot_path):
             outputs = model(volume_batch)
             outputs_soft = torch.softmax(outputs, dim=1)
 
-            if args.alpha_ce > 0:
-                loss_ce = dice_loss(
-                    outputs_soft, label_batch)
-            if args.alpha_hd > 0:
-                loss_hd = hd95_loss(
-                    outputs_soft, label_batch)
-            loss = args.alpha_ce * loss_ce + args.alpha_hd * loss_hd
+            loss = loss_dc_hd(outputs_soft, label_batch)
 
             optimizer.zero_grad()
             loss.backward()
