@@ -26,9 +26,9 @@ from val_2D import test_single_volume_cbr
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--root_path', type=str,
-                    default='../data/CaBuAr', help='Name of Experiment')
+                    default='../data/CaBuArRaw', help='Name of Experiment')
 parser.add_argument('--exp', type=str,
-                    default='CaBuAr/aCBR', help='experiment_name')
+                    default='CaBuArRaw/aCBR', help='experiment_name')
 parser.add_argument('--model', type=str,
                     default='unet', help='model_name')
 parser.add_argument('--max_iterations', type=int,
@@ -37,14 +37,14 @@ parser.add_argument('--batch_size', type=int, default=8,
                     help='batch_size per gpu')
 parser.add_argument('--deterministic', type=int,  default=1,
                     help='whether use deterministic training')
-parser.add_argument('--base_lr', type=float,  default=0.001,
+parser.add_argument('--base_lr', type=float,  default=0.01,
                     help='segmentation network learning rate')
-parser.add_argument('--patch_size', type=list,  default=[512, 512],
+parser.add_argument('--patch_size', type=list,  default=[128, 128],
                     help='patch size of network input')
 parser.add_argument('--seed', type=int,  default=42, help='random seed')
 parser.add_argument('--num_classes', type=int,  default=2,
                     help='output channel of network')
-parser.add_argument('--alpha_ce', type=float,  default=0.5, help='dice loss weight')
+parser.add_argument('--alpha_ce', type=float,  default=1, help='dice loss weight')
 
 args = parser.parse_args()
 
@@ -64,11 +64,11 @@ def train(args, snapshot_path):
     def worker_init_fn(worker_id):
         random.seed(args.seed + worker_id)
 
-    db_train = CaBuAr(base_dir=args.root_path, split="train", num=None, transform=transforms.Compose([
-        RandomNoise(),
-        RandomFlip(),
-        ToTensor()
-    ]))
+    db_train = CaBuAr(base_dir=args.root_path, split="train", num=None) #, transform=transforms.Compose([
+    #     RandomNoise(),
+    #     RandomFlip(),
+    #     ToTensor()
+    # ]))
     db_val = CaBuAr(base_dir=args.root_path, split="val")
 
     total_slices = len(db_train)
@@ -92,7 +92,9 @@ def train(args, snapshot_path):
 
     iter_num = 0
     max_epoch = max_iterations // len(trainloader) + 1
-    best_performance = 0.0
+    best_performance_ce = 0.0
+    best_performance_hd95 = 1000.0
+
     iterator = tqdm(range(max_epoch), ncols=70)
     for epoch_num in iterator:
         for i_batch, sampled_batch in enumerate(trainloader):
@@ -117,7 +119,7 @@ def train(args, snapshot_path):
 
             iter_num = iter_num + 1
             writer.add_scalar('info/lr', lr_, iter_num)
-            writer.add_scalar('info/loss_dice', loss, iter_num)
+            writer.add_scalar('info/loss_ce_hd', loss, iter_num)
 
             logging.info(
                 'iteration : %d loss: %f' %
@@ -140,16 +142,8 @@ def train(args, snapshot_path):
                     metric_i = test_single_volume_cbr(
                         sampled_batch["image"], sampled_batch["label"], model, classes=num_classes)
                     metric_list += np.array(metric_i)
+                
                 metric_list = metric_list / len(db_val)
-                for class_i in range(num_classes-1):
-                    writer.add_scalar('info/val_{}_dice'.format(class_i+1),
-                                      metric_list[class_i, 0], iter_num)
-                    writer.add_scalar('info/val_{}_hd95'.format(class_i+1),
-                                      metric_list[class_i, 1], iter_num)
-                    writer.add_scalar('info/val_{}_jc'.format(class_i+1),
-                                      metric_list[class_i, 2], iter_num)
-                    writer.add_scalar('info/val_{}_f1'.format(class_i+1),
-                                      metric_list[class_i, 3], iter_num)
                 performance = np.mean(metric_list, axis=0)
 
                 writer.add_scalar('info/val_mean_dice', performance[0], iter_num)
@@ -161,14 +155,26 @@ def train(args, snapshot_path):
                     'iteration %d : mean_dice : %f mean_hd95 : %f mean_jc : %f mean_f1 : %f' % 
                         (iter_num, performance[0], performance[1], performance[2], performance[3]))
 
-                performance = performance[0]
-                if performance > best_performance:
-                    best_performance = performance
+                performance_ce = performance[0]
+                if performance_ce > best_performance_ce:
+                    best_performance_ce = performance_ce
                     save_mode_path = os.path.join(snapshot_path,
-                                                  'iter_{}_dice_{}.pth'.format(
-                                                      iter_num, round(best_performance, 4)))
+                                                  'iter_{}_ce_{}.pth'.format(
+                                                      iter_num, round(best_performance_ce, 4)))
                     save_best = os.path.join(snapshot_path,
                                              '{}_best_model.pth'.format(args.model))
+                    
+                    torch.save(model.state_dict(), save_mode_path)
+                    torch.save(model.state_dict(), save_best)
+
+                performance_hd95 = performance[1]
+                if performance_hd95 < best_performance_hd95:
+                    best_performance_hd95 = performance_hd95
+                    save_mode_path = os.path.join(snapshot_path,
+                                                  'iter_{}_hd95_{}.pth'.format(
+                                                      iter_num, round(best_performance_hd95, 4)))
+                    save_best = os.path.join(snapshot_path,
+                                             '{}_best_model_hd95.pth'.format(args.model))
                     torch.save(model.state_dict(), save_mode_path)
                     torch.save(model.state_dict(), save_best)
 

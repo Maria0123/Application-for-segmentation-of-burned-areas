@@ -7,16 +7,16 @@ from scipy.ndimage import zoom
 def calculate_metric_percase(pred, gt):
     pred[pred > 0] = 1
     gt[gt > 0] = 1
+
     dice = metric.binary.dc(pred, gt)
-    if pred.sum() > 0:
-        hd95 = metric.binary.hd95(pred, gt)
-        jc = metric.binary.jc(pred, gt)
-        precision = metric.binary.precision(pred, gt)
-        recall = metric.binary.recall(pred, gt)
-        f1 = 2 * precision * recall / (precision + recall + 1e-5)
-        return dice, hd95, jc, f1
-    else:
-        return dice, 0, 0, 0
+    hd95 = metric.binary.hd95(pred, gt)
+    jc = metric.binary.jc(pred, gt)
+    
+    precision = metric.binary.precision(pred, gt)
+    recall = metric.binary.recall(pred, gt)
+    f1 = 2 * precision * recall / (precision + recall + 1e-5)    
+
+    return dice, hd95, jc, f1
 
 
 def test_single_volume(image, label, net, classes, patch_size=[256, 256]):

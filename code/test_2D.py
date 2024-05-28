@@ -28,22 +28,35 @@ parser.add_argument('--labeled_num', type=int, default=0,
                     help='labeled data')
 
 def calculate_metric_percase(pred, gt):
+    # pred[pred > 0] = 1
+    # gt[gt > 0] = 1
+
+    # dice = metric.binary.dc(pred, gt)
+    # precision = metric.binary.precision(pred, gt)
+    # recal = metric.binary.recall(pred, gt)
+    # jc = metric.binary.jc(pred, gt)
+    # f1 = 2 * (precision * recal) / (precision + recal + 1e-5)
+    
+    # if np.count_nonzero(pred == 0) > 0 and np.count_nonzero(gt == 0) > 0 \
+    #    and np.count_nonzero(pred) > 0 and np.count_nonzero(gt) > 0:
+    #     asd = metric.binary.asd(pred, gt)
+    #     hd95 = metric.binary.hd95(pred, gt)
+
+    #     return dice, hd95, asd, jc, f1
+    # else:
+    #     return dice, 0, 0, jc, f1
     pred[pred > 0] = 1
     gt[gt > 0] = 1
 
     dice = metric.binary.dc(pred, gt)
-    if np.count_nonzero(pred == 0) > 0 and np.count_nonzero(gt == 0) > 0 \
-       and np.count_nonzero(pred) > 0 and np.count_nonzero(gt) > 0:
-        asd = metric.binary.asd(pred, gt)
-        hd95 = metric.binary.hd95(pred, gt)
-        precision = metric.binary.precision(pred, gt)
-        recal = metric.binary.recall(pred, gt)
-        jc = metric.binary.jc(pred, gt)
-        f1 = 2 * (precision * recal) / (precision + recal + 1e-5)
+    hd95 = metric.binary.hd95(pred, gt)
+    jc = metric.binary.jc(pred, gt)
+    
+    precision = metric.binary.precision(pred, gt)
+    recall = metric.binary.recall(pred, gt)
+    f1 = 2 * precision * recall / (precision + recall + 1e-5)    
 
-        return dice, hd95, asd, jc, f1
-    else:
-        return dice, 0, 0, 0, 0 # TODO czy dobrze?
+    return dice, hd95, jc, f1
 
 def test_single_volume(case, net, test_save_path, FLAGS, writer):
     h5f = h5py.File(FLAGS.root_path + "/data/slices/{}.h5".format(case), 'r')
@@ -67,23 +80,18 @@ def test_single_volume(case, net, test_save_path, FLAGS, writer):
         out = out.cpu().detach().numpy()
         prediction = out
 
-    first_metric = calculate_metric_percase(prediction, label)
-
-    img_itk = sitk.GetImageFromArray(image.astype(np.float32))
-    # img_itk.SetSpacing((1, 1, 10))
-    prd_itk = sitk.GetImageFromArray(prediction.astype(np.float32))
-    # prd_itk.SetSpacing((1, 1, 10))
-    lab_itk = sitk.GetImageFromArray(label.astype(np.float32))
-    # lab_itk.SetSpacing((1, 1, 10))
-    # sitk.WriteImage(prd_itk, test_save_path + case + "_pred.nii.gz")
-    # sitk.WriteImage(img_itk, test_save_path + case + "_img.nii.gz")
-    # sitk.WriteImage(lab_itk, test_save_path + case + "_gt.nii.gz")
+    metric = calculate_metric_percase(prediction, label)
 
     writer.add_image("Image", image[1:3, :, :], case[17:])
     writer.add_image("Prediction", prediction * 50, case[17:])
     writer.add_image("GroundTruth", label * 50, case[17:])
 
-    return first_metric
+    writer.add_scalar('info/val_mean_dice', metric[0], case[17:])
+    writer.add_scalar('info/val_mean_hd95', metric[1], case[17:])
+    writer.add_scalar('info/val_mean_jc', metric[2], case[17:])
+    writer.add_scalar('info/val_mean_f1', metric[3], case[17:])
+
+    return metric
 
 
 def Inference(FLAGS):
@@ -98,7 +106,7 @@ def Inference(FLAGS):
     if os.path.exists(test_save_path):
         shutil.rmtree(test_save_path)
     os.makedirs(test_save_path)
-    writer = SummaryWriter(test_save_path + '/sw')
+    writer = SummaryWriter(test_save_path)
 
     net = net_factory(net_type=FLAGS.model, in_chns=12,
                       class_num=FLAGS.num_classes)
