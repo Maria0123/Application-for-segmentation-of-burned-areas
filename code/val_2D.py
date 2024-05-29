@@ -9,14 +9,16 @@ def calculate_metric_percase(pred, gt):
     gt[gt > 0] = 1
 
     dice = metric.binary.dc(pred, gt)
-    hd95 = metric.binary.hd95(pred, gt)
-    jc = metric.binary.jc(pred, gt)
-    
     precision = metric.binary.precision(pred, gt)
     recall = metric.binary.recall(pred, gt)
-    f1 = 2 * precision * recall / (precision + recall + 1e-5)    
-
-    return dice, hd95, jc, f1
+    f1 = 2 * precision * recall / (precision + recall + 1e-5)
+    
+    if pred.sum() > 0:
+        hd95 = metric.binary.hd95(pred, gt)
+        jc = metric.binary.jc(pred, gt)
+        return dice, hd95, jc, f1
+    else:
+        return dice, 100, 0, f1
 
 
 def test_single_volume(image, label, net, classes, patch_size=[256, 256]):
