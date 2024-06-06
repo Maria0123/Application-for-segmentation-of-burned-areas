@@ -62,7 +62,7 @@ parser.add_argument('--consistency_rampup', type=float,
                     default=200.0, help='consistency_rampup')
 
 # loss function
-parser.add_argument('--alpha_ce', type=float,  default=0.5, help='hd95 loss weight')
+parser.add_argument('--alpha_ce', type=float,  default=0.5, help='dice loss weigh')
 
 args = parser.parse_args()
 
