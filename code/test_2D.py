@@ -17,7 +17,7 @@ from networks.net_factory import net_factory
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--root_path', type=str,
-                    default='../data/CaBuAr', help='Name of Experiment')
+                    default='../data/CaBuArRaw', help='Name of Experiment')
 parser.add_argument('--exp', type=str,
                     default='CaBuAr/Unet/batch8', help='experiment_name')
 parser.add_argument('--model', type=str,
@@ -28,37 +28,23 @@ parser.add_argument('--labeled_num', type=int, default=0,
                     help='labeled data')
 
 def calculate_metric_percase(pred, gt):
-    # pred[pred > 0] = 1
-    # gt[gt > 0] = 1
-
-    # dice = metric.binary.dc(pred, gt)
-    # precision = metric.binary.precision(pred, gt)
-    # recal = metric.binary.recall(pred, gt)
-    # jc = metric.binary.jc(pred, gt)
-    # f1 = 2 * (precision * recal) / (precision + recal + 1e-5)
-    
-    # if np.count_nonzero(pred == 0) > 0 and np.count_nonzero(gt == 0) > 0 \
-    #    and np.count_nonzero(pred) > 0 and np.count_nonzero(gt) > 0:
-    #     asd = metric.binary.asd(pred, gt)
-    #     hd95 = metric.binary.hd95(pred, gt)
-
-    #     return dice, hd95, asd, jc, f1
-    # else:
-    #     return dice, 0, 0, jc, f1
     pred[pred > 0] = 1
     gt[gt > 0] = 1
 
     dice = metric.binary.dc(pred, gt)
-    hd95 = metric.binary.hd95(pred, gt)
     jc = metric.binary.jc(pred, gt)
     
-    precision = metric.binary.precision(pred, gt)
-    recall = metric.binary.recall(pred, gt)
-    f1 = 2 * precision * recall / (precision + recall + 1e-5)    
+    if pred.sum() > 0:
+        hd95 = metric.binary.hd95(pred, gt)
 
-    return dice, hd95, jc, f1
+        precision = metric.binary.precision(pred, gt)
+        recall = metric.binary.recall(pred, gt)
+        f1 = 2 * (precision * recall) / (precision + recall + 1e-5)  
+        return dice, hd95, jc, f1
 
-def test_single_volume(case, net, test_save_path, FLAGS, writer):
+    return dice, 100, jc, 0
+
+def test_single_volume(case, net, test_save_path, FLAGS, writer, i=0):
     h5f = h5py.File(FLAGS.root_path + "/data/slices/{}.h5".format(case), 'r')
     image = h5f['image'][:]
     label = h5f['label'][:]
@@ -82,14 +68,15 @@ def test_single_volume(case, net, test_save_path, FLAGS, writer):
 
     metric = calculate_metric_percase(prediction, label)
 
-    writer.add_image("Image", image[1:3, :, :], case[17:])
-    writer.add_image("Prediction", prediction * 50, case[17:])
-    writer.add_image("GroundTruth", label * 50, case[17:])
+    print(i)
+    writer.add_image("Image", image[1:3, :, :], i)
+    writer.add_image("Prediction", prediction * 50, i)
+    writer.add_image("GroundTruth", label * 50, i)
 
-    writer.add_scalar('info/val_mean_dice', metric[0], case[17:])
-    writer.add_scalar('info/val_mean_hd95', metric[1], case[17:])
-    writer.add_scalar('info/val_mean_jc', metric[2], case[17:])
-    writer.add_scalar('info/val_mean_f1', metric[3], case[17:])
+    writer.add_scalar('info/val_mean_dice', metric[0], i)
+    writer.add_scalar('info/val_mean_hd95', metric[1], i)
+    writer.add_scalar('info/val_mean_jc', metric[2], i)
+    writer.add_scalar('info/val_mean_f1', metric[3], i)
 
     return metric
 
@@ -118,9 +105,9 @@ def Inference(FLAGS):
     net.eval()
 
     first_total = 0.0
-    for case in tqdm(image_list):
+    for i, case in tqdm(enumerate(image_list)):
         first_metric = test_single_volume(
-            case, net, test_save_path, FLAGS, writer)
+            case, net, test_save_path, FLAGS, writer, i)
         first_total += np.asarray(first_metric)
     avg_metric = first_total / len(image_list)
     

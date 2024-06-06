@@ -37,14 +37,14 @@ parser.add_argument('--batch_size', type=int, default=8,
                     help='batch_size per gpu')
 parser.add_argument('--deterministic', type=int,  default=1,
                     help='whether use deterministic training')
-parser.add_argument('--base_lr', type=float,  default=0.01,
+parser.add_argument('--base_lr', type=float,  default=0.001,
                     help='segmentation network learning rate')
 parser.add_argument('--patch_size', type=list,  default=[128, 128],
                     help='patch size of network input')
 parser.add_argument('--seed', type=int,  default=42, help='random seed')
 parser.add_argument('--num_classes', type=int,  default=2,
                     help='output channel of network')
-parser.add_argument('--alpha_ce', type=float,  default=1, help='dice loss weight')
+parser.add_argument('--alpha_ce', type=float,  default=0.5, help='dice loss weight')
 
 args = parser.parse_args()
 
