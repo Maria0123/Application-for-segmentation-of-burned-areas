@@ -21,37 +21,37 @@ from torchvision.utils import make_grid
 from tqdm import tqdm
 
 from dataloaders import utils
-from dataloaders.dataset import (BaseDataSets, RandomGenerator,
-                                 TwoStreamBatchSampler)
+from dataloaders.CaBuAr import CaBuAr
+from dataloaders.dataset import TwoStreamBatchSampler
 from networks.net_factory import net_factory
 from utils import losses, metrics, ramps
-from val_2D import test_single_volume
+from val_2D import test_single_volume, test_single_volume_cbr
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--root_path', type=str,
-                    default='../data/ACDC', help='Name of Experiment')
+                    default='../data/CaBuArRaw', help='Name of Experiment')
 parser.add_argument('--exp', type=str,
-                    default='ACDC/Regularized_Dropout', help='experiment_name')
+                    default='CaBuArRaw/Regularized_Dropout', help='experiment_name')
 parser.add_argument('--model', type=str,
                     default='unet', help='model_name')
 parser.add_argument('--max_iterations', type=int,
                     default=30000, help='maximum epoch number to train')
-parser.add_argument('--batch_size', type=int, default=24,
+parser.add_argument('--batch_size', type=int, default=8,
                     help='batch_size per gpu')
 parser.add_argument('--deterministic', type=int,  default=1,
                     help='whether use deterministic training')
-parser.add_argument('--base_lr', type=float,  default=0.01,
+parser.add_argument('--base_lr', type=float,  default=0.001,
                     help='segmentation network learning rate')
-parser.add_argument('--patch_size', type=list,  default=[256, 256],
+parser.add_argument('--patch_size', type=list,  default=[128, 128],
                     help='patch size of network input')
-parser.add_argument('--seed', type=int,  default=1337, help='random seed')
-parser.add_argument('--num_classes', type=int,  default=4,
+parser.add_argument('--seed', type=int,  default=42, help='random seed')
+parser.add_argument('--num_classes', type=int,  default=2,
                     help='output channel of network')
 
 # label and unlabel
-parser.add_argument('--labeled_bs', type=int, default=12,
+parser.add_argument('--labeled_bs', type=int, default=4,
                     help='labeled_batch_size per gpu')
-parser.add_argument('--labeled_num', type=int, default=136,
+parser.add_argument('--labeled_num', type=int, default=7,
                     help='labeled data')
 # costs
 parser.add_argument('--ema_decay', type=float,  default=0.99, help='ema_decay')
@@ -61,6 +61,9 @@ parser.add_argument('--consistency', type=float,
                     default=4.0, help='consistency')
 parser.add_argument('--consistency_rampup', type=float,
                     default=200.0, help='consistency_rampup')
+
+# loss function
+parser.add_argument('--alpha_ce', type=float,  default=0.5, help='dice loss weigh')
 args = parser.parse_args()
 
 def kaiming_normal_init_weight(model):
@@ -86,9 +89,11 @@ def patients_to_slices(dataset, patiens_num):
     if "ACDC" in dataset:
         ref_dict = {"3": 68, "7": 136,
                     "14": 256, "21": 396, "28": 512, "35": 664, "140": 1312}
-    elif "Prostate":
+    elif "Prostate" in dataset:
         ref_dict = {"2": 27, "4": 53, "8": 120,
                     "12": 179, "16": 256, "21": 312, "42": 623}
+    elif "CaBuAr" in dataset:
+        ref_dict = {"3": 15, "7": 70, "13": 110}
     else:
         print("Error")
     return ref_dict[str(patiens_num)]
@@ -114,7 +119,7 @@ def train(args, snapshot_path):
 
     def create_model(ema=False):
         # Network definition
-        model = net_factory(net_type=args.model, in_chns=1,
+        model = net_factory(net_type=args.model, in_chns=12,
                             class_num=num_classes)
         if ema:
             for param in model.parameters():
@@ -127,10 +132,12 @@ def train(args, snapshot_path):
     def worker_init_fn(worker_id):
         random.seed(args.seed + worker_id)
 
-    db_train = BaseDataSets(base_dir=args.root_path, split="train", num=None, transform=transforms.Compose([
-        RandomGenerator(args.patch_size)
-    ]))
-    db_val = BaseDataSets(base_dir=args.root_path, split="val")
+    db_train = CaBuAr(base_dir=args.root_path, split="train", num=None) #, transform=transforms.Compose([
+    #     RandomNoise(),
+    #     RandomFlip(),
+    #     ToTensor()
+    # ]))
+    db_val = CaBuAr(base_dir=args.root_path, split="val")
 
     total_slices = len(db_train)
     labeled_slice = patients_to_slices(args.root_path, args.labeled_num)
@@ -142,20 +149,19 @@ def train(args, snapshot_path):
         labeled_idxs, unlabeled_idxs, batch_size, batch_size-args.labeled_bs)
 
     trainloader = DataLoader(db_train, batch_sampler=batch_sampler,
-                             num_workers=4, pin_memory=True, worker_init_fn=worker_init_fn)
+                             num_workers=0, pin_memory=True, worker_init_fn=worker_init_fn)
 
     model1.train()
     model2.train()
 
     valloader = DataLoader(db_val, batch_size=1, shuffle=False,
-                           num_workers=1)
+                           num_workers=0)
 
-    optimizer1 = optim.SGD(model1.parameters(), lr=base_lr,
-                          momentum=0.9, weight_decay=0.0001)
-    optimizer2 = optim.SGD(model2.parameters(), lr=base_lr,
-                          momentum=0.9, weight_decay=0.0001)
+    optimizer1 = optim.AdamW(model1.parameters(), lr=base_lr, weight_decay=0.01)
+    optimizer2 = optim.AdamW(model2.parameters(), lr=base_lr, weight_decay=0.01)
+    
     ce_loss = CrossEntropyLoss()
-    dice_loss = losses.DiceLoss(num_classes)
+    dc_hd_loss = losses.DiceHD95Loss(num_classes, args.alpha_ce)
 
     writer = SummaryWriter(snapshot_path + '/log')
     logging.info("{} iterations per epoch".format(len(trainloader)))
@@ -169,7 +175,11 @@ def train(args, snapshot_path):
         for i_batch, sampled_batch in enumerate(trainloader):
 
             volume_batch, label_batch = sampled_batch['image'], sampled_batch['label']
-            volume_batch, label_batch = volume_batch.cuda(), label_batch.cuda()
+            if torch.backends.mps.is_available():
+                volume_batch, label_batch = volume_batch.to(torch.float32).to("mps"), label_batch.to(torch.float32).to("mps")
+            else:
+                volume_batch, label_batch = volume_batch.cuda(), label_batch.type(torch.LongTensor).cuda()
+            
 
             outputs1  = model1(volume_batch)
             outputs_soft1 = torch.softmax(outputs1, dim=1)
@@ -178,10 +188,10 @@ def train(args, snapshot_path):
             outputs_soft2 = torch.softmax(outputs2, dim=1)
             consistency_weight = get_current_consistency_weight(iter_num // 150)
 
-            model1_loss = 0.5 * (ce_loss(outputs1[:args.labeled_bs], label_batch[:args.labeled_bs].long()) + dice_loss(
-                outputs_soft1[:args.labeled_bs], label_batch[:args.labeled_bs].unsqueeze(1)))
-            model2_loss = 0.5 * (ce_loss(outputs2[:args.labeled_bs], label_batch[:args.labeled_bs].long()) + dice_loss(
-                outputs_soft2[:args.labeled_bs], label_batch[:args.labeled_bs].unsqueeze(1)))
+            model1_loss = 0.5 * (ce_loss(outputs1[:args.labeled_bs], label_batch[:args.labeled_bs].squeeze()) + dc_hd_loss(
+                outputs_soft1[:args.labeled_bs], label_batch[:args.labeled_bs]))
+            model2_loss = 0.5 * (ce_loss(outputs2[:args.labeled_bs], label_batch[:args.labeled_bs].squeeze()) + dc_hd_loss(
+                outputs_soft2[:args.labeled_bs], label_batch[:args.labeled_bs]))
 
             r_drop_loss = losses.compute_kl_loss(outputs1[args.labeled_bs:], outputs2[args.labeled_bs:])
 
@@ -216,39 +226,40 @@ def train(args, snapshot_path):
             logging.info('iteration %d : model1 loss : %f model2 loss : %f r_drop_loss: %f' % (iter_num, model1_loss.item(), model2_loss.item(), r_drop_loss.item()))
 
             if iter_num % 50 == 0:
-                image = volume_batch[1, 0:1, :, :]
+                image = volume_batch[0, 2:4, :, :]
                 writer.add_image('train/Image', image, iter_num)
                 outputs = torch.argmax(torch.softmax(
                     outputs1, dim=1), dim=1, keepdim=True)
                 writer.add_image('train/model1_Prediction',
-                                 outputs[1, ...] * 50, iter_num)
+                                 outputs[0, ...] * 50, iter_num)
                 outputs = torch.argmax(torch.softmax(
                     outputs2, dim=1), dim=1, keepdim=True)
                 writer.add_image('train/model2_Prediction',
-                                 outputs[1, ...] * 50, iter_num)
-                labs = label_batch[1, ...].unsqueeze(0) * 50
+                                 outputs[0, ...] * 50, iter_num)
+                labs = label_batch[0, ...] * 50
                 writer.add_image('train/GroundTruth', labs, iter_num)
 
-            if iter_num > 0 and iter_num % 200 == 0:
+            if iter_num > 0 and iter_num % 300 == 0:
                 model1.eval()
                 metric_list = 0.0
                 for i_batch, sampled_batch in enumerate(valloader):
-                    metric_i = test_single_volume(
+                    metric_i = test_single_volume_cbr(
                         sampled_batch["image"], sampled_batch["label"], model1, classes=num_classes)
                     metric_list += np.array(metric_i)
+                
                 metric_list = metric_list / len(db_val)
-                for class_i in range(num_classes-1):
-                    writer.add_scalar('info/model1_val_{}_dice'.format(class_i+1),
-                                      metric_list[class_i, 0], iter_num)
-                    writer.add_scalar('info/model1_val_{}_hd95'.format(class_i+1),
-                                      metric_list[class_i, 1], iter_num)
+                performance1 = np.mean(metric_list, axis=0)
 
-                performance1 = np.mean(metric_list, axis=0)[0]
+                writer.add_scalar('info/model1_val_mean_dice', performance1[0], iter_num)
+                writer.add_scalar('info/model1_val_mean_hd95', performance1[1], iter_num)
+                writer.add_scalar('info/model1_val_mean_jc', performance1[2], iter_num)
+                writer.add_scalar('info/model1_val_mean_f1', performance1[3], iter_num)
 
-                mean_hd951 = np.mean(metric_list, axis=0)[1]
-                writer.add_scalar('info/model1_val_mean_dice', performance1, iter_num)
-                writer.add_scalar('info/model1_val_mean_hd95', mean_hd951, iter_num)
-
+                logging.info(
+                    'MODEL1 iteration %d : mean_dice : %f mean_hd95 : %f mean_jc : %f mean_f1 : %f' % 
+                        (iter_num, performance1[0], performance1[1], performance1[2], performance1[3]))
+  
+                performance1 = performance1[0]
                 if performance1 > best_performance1:
                     best_performance1 = performance1
                     save_mode_path = os.path.join(snapshot_path,
@@ -259,28 +270,28 @@ def train(args, snapshot_path):
                     torch.save(model1.state_dict(), save_mode_path)
                     torch.save(model1.state_dict(), save_best)
 
-                logging.info(
-                    'iteration %d : model1_mean_dice : %f model1_mean_hd95 : %f' % (iter_num, performance1, mean_hd951))
                 model1.train()
 
                 model2.eval()
                 metric_list = 0.0
                 for i_batch, sampled_batch in enumerate(valloader):
-                    metric_i = test_single_volume(
+                    metric_i = test_single_volume_cbr(
                         sampled_batch["image"], sampled_batch["label"], model2, classes=num_classes)
                     metric_list += np.array(metric_i)
+                
                 metric_list = metric_list / len(db_val)
-                for class_i in range(num_classes-1):
-                    writer.add_scalar('info/model2_val_{}_dice'.format(class_i+1),
-                                      metric_list[class_i, 0], iter_num)
-                    writer.add_scalar('info/model2_val_{}_hd95'.format(class_i+1),
-                                      metric_list[class_i, 1], iter_num)
+                performance2 = np.mean(metric_list, axis=0)
 
-                performance2 = np.mean(metric_list, axis=0)[0]
+                writer.add_scalar('info/model2_val_mean_dice', performance2[0], iter_num)
+                writer.add_scalar('info/model2_val_mean_hd95', performance2[1], iter_num)
+                writer.add_scalar('info/model2_val_mean_jc', performance2[2], iter_num)
+                writer.add_scalar('info/model2_val_mean_f1', performance2[3], iter_num)
 
-                mean_hd952 = np.mean(metric_list, axis=0)[1]
-                writer.add_scalar('info/model2_val_mean_dice', performance2, iter_num)
-                writer.add_scalar('info/model2_val_mean_hd95', mean_hd952, iter_num)
+                logging.info(
+                    'MODEL2 iteration %d : mean_dice : %f mean_hd95 : %f mean_jc : %f mean_f1 : %f' % 
+                        (iter_num, performance2[0], performance2[1], performance2[2], performance2[3]))
+  
+                performance2 = performance2[0]
 
                 if performance2 > best_performance2:
                     best_performance2 = performance2
@@ -292,8 +303,6 @@ def train(args, snapshot_path):
                     torch.save(model2.state_dict(), save_mode_path)
                     torch.save(model2.state_dict(), save_best)
 
-                logging.info(
-                    'iteration %d : model2_mean_dice : %f model2_mean_hd95 : %f' % (iter_num, performance2, mean_hd952))
                 model2.train()
 
             if iter_num % 3000 == 0:
