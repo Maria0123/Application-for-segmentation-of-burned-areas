@@ -129,7 +129,7 @@ dmypy.json
 .pyre/
 
 # Data
-# data/
+.DS_Store
 
 # Models
 model/
