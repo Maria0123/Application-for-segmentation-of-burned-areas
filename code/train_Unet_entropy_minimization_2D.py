@@ -66,7 +66,7 @@ parser.add_argument('--consistency_rampup', type=float,
                     default=200.0, help='consistency_rampup')
 
 # loss function
-parser.add_argument('--alpha_ce', type=float,  default=0.5, help='dice loss weigh')
+parser.add_argument('--alpha_ce', type=float,  default=1, help='dice loss weigh')
 
 args = parser.parse_args()
 
@@ -177,8 +177,12 @@ def train(args, snapshot_path):
             writer.add_scalar('info/consistency_loss',
                               consistency_loss, iter_num)
             writer.add_scalar('info/consistency_weight',
-                              consistency_weight, iter_num)
-
+                              consistency_weight, iter_num)            
+            writer.add_scalar('info/supervised_loss',
+                              supervised_loss, iter_num)
+            writer.add_scalar('info/unsupervised_loss',
+                              consistency_weight * consistency_loss, iter_num)
+            
             logging.info(
                 'iteration %d : loss : %f, loss_ce: %f, loss_dc_hd: %f' %
                 (iter_num, loss.item(), loss_ce.item(), loss_dc_hd.item()))

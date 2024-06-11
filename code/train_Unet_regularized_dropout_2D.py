@@ -63,7 +63,7 @@ parser.add_argument('--consistency_rampup', type=float,
                     default=200.0, help='consistency_rampup')
 
 # loss function
-parser.add_argument('--alpha_ce', type=float,  default=0.5, help='dice loss weigh')
+parser.add_argument('--alpha_ce', type=float,  default=1, help='dice loss weigh')
 args = parser.parse_args()
 
 def kaiming_normal_init_weight(model):
@@ -188,15 +188,17 @@ def train(args, snapshot_path):
             outputs_soft2 = torch.softmax(outputs2, dim=1)
             consistency_weight = get_current_consistency_weight(iter_num // 150)
 
-            model1_loss = 0.5 * (ce_loss(outputs1[:args.labeled_bs], label_batch[:args.labeled_bs].squeeze()) + dc_hd_loss(
-                outputs_soft1[:args.labeled_bs], label_batch[:args.labeled_bs]))
-            model2_loss = 0.5 * (ce_loss(outputs2[:args.labeled_bs], label_batch[:args.labeled_bs].squeeze()) + dc_hd_loss(
-                outputs_soft2[:args.labeled_bs], label_batch[:args.labeled_bs]))
+            loss_ce_1 = ce_loss(outputs1[:args.labeled_bs], label_batch[:args.labeled_bs].squeeze())
+            loss_dc_hd_1 = dc_hd_loss(outputs_soft1[:args.labeled_bs], label_batch[:args.labeled_bs])
+            model1_loss = 0.5 * (loss_ce_1 + loss_dc_hd_1)
+
+            loss_ce_2 = ce_loss(outputs2[:args.labeled_bs], label_batch[:args.labeled_bs].squeeze())
+            loss_dc_hd_2 = dc_hd_loss(outputs_soft2[:args.labeled_bs], label_batch[:args.labeled_bs])
+            model2_loss = 0.5 * (loss_ce_2 + loss_dc_hd_2)
 
             r_drop_loss = losses.compute_kl_loss(outputs1[args.labeled_bs:], outputs2[args.labeled_bs:])
 
             loss = model1_loss + model2_loss + consistency_weight * r_drop_loss
-
 
             optimizer1.zero_grad()
             optimizer2.zero_grad()
@@ -223,6 +225,17 @@ def train(args, snapshot_path):
                               model2_loss, iter_num)
             writer.add_scalar('loss/r_drop_loss',
                               r_drop_loss, iter_num)
+            writer.add_scalar('loss/loss_ce_model1',
+                              loss_ce_1, iter_num)            
+            writer.add_scalar('loss/loss_dc_hd_model1',
+                              loss_dc_hd_1, iter_num)   
+            writer.add_scalar('loss/loss_ce_model2',
+                              loss_ce_2, iter_num)            
+            writer.add_scalar('loss/loss_dc_hd_model2',
+                              loss_dc_hd_2, iter_num) 
+            writer.add_scalar('loss/total_loss',
+                              loss, iter_num) 
+                                    
             logging.info('iteration %d : model1 loss : %f model2 loss : %f r_drop_loss: %f' % (iter_num, model1_loss.item(), model2_loss.item(), r_drop_loss.item()))
 
             if iter_num % 50 == 0:

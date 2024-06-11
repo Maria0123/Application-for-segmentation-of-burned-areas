@@ -44,7 +44,7 @@ parser.add_argument('--patch_size', type=list,  default=[128, 128],
 parser.add_argument('--seed', type=int,  default=42, help='random seed')
 parser.add_argument('--num_classes', type=int,  default=2,
                     help='output channel of network')
-parser.add_argument('--alpha_ce', type=float,  default=0.5, help='dice loss weight')
+parser.add_argument('--alpha_ce', type=float,  default=1, help='dice loss weight')
 
 args = parser.parse_args()
 
@@ -119,7 +119,7 @@ def train(args, snapshot_path):
 
             iter_num = iter_num + 1
             writer.add_scalar('info/lr', lr_, iter_num)
-            writer.add_scalar('info/loss_ce_hd', loss, iter_num)
+            writer.add_scalar('info/total_loss', loss, iter_num)
 
             logging.info(
                 'iteration : %d loss: %f' %
