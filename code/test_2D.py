@@ -68,7 +68,6 @@ def test_single_volume(case, net, test_save_path, FLAGS, writer, i=0):
 
     metric = calculate_metric_percase(prediction, label)
 
-    print(i)
     writer.add_image("Image", image[1:3, :, :], i)
     writer.add_image("Prediction", prediction * 50, i)
     writer.add_image("GroundTruth", label * 50, i)
