@@ -64,6 +64,10 @@ parser.add_argument('--consistency_rampup', type=float,
 
 # loss function
 parser.add_argument('--alpha_ce', type=float,  default=1, help='dice loss weigh')
+
+# net stats
+parser.add_argument('--with_stats', type=bool,  default=True, help='net stats')
+
 args = parser.parse_args()
 
 def kaiming_normal_init_weight(model):
@@ -117,17 +121,17 @@ def train(args, snapshot_path):
     batch_size = args.batch_size
     max_iterations = args.max_iterations
 
-    def create_model(ema=False):
+    def create_model(ema=False, with_stats=False):
         # Network definition
         model = net_factory(net_type=args.model, in_chns=12,
-                            class_num=num_classes)
+                            class_num=num_classes, with_stats = with_stats)
         if ema:
             for param in model.parameters():
                 param.detach_()
         return model
 
-    model1 = create_model()
-    model2 = create_model()
+    model1 = create_model(with_stats = args.with_stats)
+    model2 = create_model(with_stats = args.with_stats)
     
     def worker_init_fn(worker_id):
         random.seed(args.seed + worker_id)

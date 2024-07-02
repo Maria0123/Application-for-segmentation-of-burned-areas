@@ -31,13 +31,13 @@ def sparse_init_weight(model):
 class ConvBlock(nn.Module):
     """two convolution layers with batch norm and leaky relu"""
 
-    def __init__(self, in_channels, out_channels, dropout_p):
+    def __init__(self, in_channels, out_channels, dropout_p, with_stats):
         super(ConvBlock, self).__init__()
         self.conv_conv = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
             nn.BatchNorm2d(out_channels),
             nn.LeakyReLU(),
-            nn.Dropout(dropout_p),
+            DropoutWithStats(dropout_p) if with_stats else nn.Dropout(dropout_p),
             nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
             nn.BatchNorm2d(out_channels),
             nn.LeakyReLU()
@@ -50,11 +50,11 @@ class ConvBlock(nn.Module):
 class DownBlock(nn.Module):
     """Downsampling followed by ConvBlock"""
 
-    def __init__(self, in_channels, out_channels, dropout_p):
+    def __init__(self, in_channels, out_channels, dropout_p, with_stats):
         super(DownBlock, self).__init__()
         self.maxpool_conv = nn.Sequential(
             nn.MaxPool2d(2),
-            ConvBlock(in_channels, out_channels, dropout_p)
+            ConvBlock(in_channels, out_channels, dropout_p, with_stats)
 
         )
 
@@ -66,7 +66,7 @@ class UpBlock(nn.Module):
     """Upssampling followed by ConvBlock"""
 
     def __init__(self, in_channels1, in_channels2, out_channels, dropout_p,
-                 bilinear=True):
+                 bilinear=True, with_stats=False):
         super(UpBlock, self).__init__()
         self.bilinear = bilinear
         if bilinear:
@@ -76,7 +76,7 @@ class UpBlock(nn.Module):
         else:
             self.up = nn.ConvTranspose2d(
                 in_channels1, in_channels2, kernel_size=2, stride=2)
-        self.conv = ConvBlock(in_channels2 * 2, out_channels, dropout_p)
+        self.conv = ConvBlock(in_channels2 * 2, out_channels, dropout_p, with_stats)
 
     def forward(self, x1, x2):
         if self.bilinear:
@@ -87,7 +87,7 @@ class UpBlock(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, params):
+    def __init__(self, params, with_stats):
         super(Encoder, self).__init__()
         self.params = params
         self.in_chns = self.params['in_chns']
@@ -97,15 +97,15 @@ class Encoder(nn.Module):
         self.dropout = self.params['dropout']
         assert (len(self.ft_chns) == 5)
         self.in_conv = ConvBlock(
-            self.in_chns, self.ft_chns[0], self.dropout[0])
+            self.in_chns, self.ft_chns[0], self.dropout[0], with_stats)
         self.down1 = DownBlock(
-            self.ft_chns[0], self.ft_chns[1], self.dropout[1])
+            self.ft_chns[0], self.ft_chns[1], self.dropout[1], with_stats)
         self.down2 = DownBlock(
-            self.ft_chns[1], self.ft_chns[2], self.dropout[2])
+            self.ft_chns[1], self.ft_chns[2], self.dropout[2], with_stats)
         self.down3 = DownBlock(
-            self.ft_chns[2], self.ft_chns[3], self.dropout[3])
+            self.ft_chns[2], self.ft_chns[3], self.dropout[3], with_stats)
         self.down4 = DownBlock(
-            self.ft_chns[3], self.ft_chns[4], self.dropout[4])
+            self.ft_chns[3], self.ft_chns[4], self.dropout[4], with_stats)
 
     def forward(self, x):
         x0 = self.in_conv(x)
@@ -117,7 +117,7 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, params):
+    def __init__(self, params, with_stats):
         super(Decoder, self).__init__()
         self.params = params
         self.in_chns = self.params['in_chns']
@@ -127,13 +127,13 @@ class Decoder(nn.Module):
         assert (len(self.ft_chns) == 5)
 
         self.up1 = UpBlock(
-            self.ft_chns[4], self.ft_chns[3], self.ft_chns[3], dropout_p=0.0)
+            self.ft_chns[4], self.ft_chns[3], self.ft_chns[3], dropout_p=0.0, with_stats=with_stats)
         self.up2 = UpBlock(
-            self.ft_chns[3], self.ft_chns[2], self.ft_chns[2], dropout_p=0.0)
+            self.ft_chns[3], self.ft_chns[2], self.ft_chns[2], dropout_p=0.0, with_stats=with_stats)
         self.up3 = UpBlock(
-            self.ft_chns[2], self.ft_chns[1], self.ft_chns[1], dropout_p=0.0)
+            self.ft_chns[2], self.ft_chns[1], self.ft_chns[1], dropout_p=0.0, with_stats=with_stats)
         self.up4 = UpBlock(
-            self.ft_chns[1], self.ft_chns[0], self.ft_chns[0], dropout_p=0.0)
+            self.ft_chns[1], self.ft_chns[0], self.ft_chns[0], dropout_p=0.0, with_stats=with_stats)
 
         self.out_conv = nn.Conv2d(self.ft_chns[0], self.n_class,
                                   kernel_size=3, padding=1)
@@ -285,6 +285,14 @@ def FeatureDropout(x):
     return x
 
 
+class DropoutWithStats(nn.Dropout):
+    def forward(self, input):
+        output = super().forward(input)
+        if self.training:
+            self.num_dropped_neurons = (output == 0).sum().item()
+        return output
+    
+
 class FeatureNoise(nn.Module):
     def __init__(self, uniform_range=0.3):
         super(FeatureNoise, self).__init__()
@@ -302,7 +310,7 @@ class FeatureNoise(nn.Module):
 
 
 class UNet(nn.Module):
-    def __init__(self, in_chns, class_num):
+    def __init__(self, in_chns, class_num, with_stats):
         super(UNet, self).__init__()
 
         params = {'in_chns': in_chns,
@@ -312,8 +320,8 @@ class UNet(nn.Module):
                   'bilinear': False,
                   'acti_func': 'relu'}
 
-        self.encoder = Encoder(params)
-        self.decoder = Decoder(params)
+        self.encoder = Encoder(params, with_stats)
+        self.decoder = Decoder(params, with_stats)
 
     def forward(self, x):
         feature = self.encoder(x)
