@@ -1,4 +1,5 @@
 import argparse
+import copy
 import logging
 import os
 import random
@@ -25,13 +26,14 @@ from dataloaders.CaBuAr import CaBuAr
 from dataloaders.dataset import TwoStreamBatchSampler
 from networks.net_factory import net_factory
 from utils import losses, metrics, ramps
+from utils.stats_writer import writeNetStats
 from val_2D import test_single_volume, test_single_volume_cbr
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--root_path', type=str,
                     default='../data/CaBuArRaw', help='Name of Experiment')
 parser.add_argument('--exp', type=str,
-                    default='CaBuArRaw/Regularized_Dropout', help='experiment_name')
+                    default='CaBuArRaw/Regularized_Dropout_SM', help='experiment_name')
 parser.add_argument('--model', type=str,
                     default='unet', help='model_name')
 parser.add_argument('--max_iterations', type=int,
@@ -64,6 +66,10 @@ parser.add_argument('--consistency_rampup', type=float,
 
 # loss function
 parser.add_argument('--alpha_ce', type=float,  default=1, help='dice loss weigh')
+
+# net stats
+parser.add_argument('--with_stats', type=bool,  default=True, help='net stats')
+
 args = parser.parse_args()
 
 def kaiming_normal_init_weight(model):
@@ -120,7 +126,7 @@ def train(args, snapshot_path):
     def create_model(ema=False):
         # Network definition
         model = net_factory(net_type=args.model, in_chns=12,
-                            class_num=num_classes)
+                            class_num=num_classes, with_stats=args.with_stats)
         if ema:
             for param in model.parameters():
                 param.detach_()
@@ -179,6 +185,9 @@ def train(args, snapshot_path):
             outputs1  = model(volume_batch)
             outputs_soft1 = torch.softmax(outputs1, dim=1)
 
+            if args.with_stats:
+                model1 = copy.deepcopy(model)
+
             outputs2 = model(volume_batch)
             outputs_soft2 = torch.softmax(outputs2, dim=1)
             consistency_weight = get_current_consistency_weight(iter_num // 150)
@@ -208,6 +217,10 @@ def train(args, snapshot_path):
             writer.add_scalar('lr', lr_, iter_num)
             writer.add_scalar(
                 'consistency_weight/consistency_weight', consistency_weight, iter_num)
+            
+            if args.with_stats:
+                writeNetStats(model1, model, writer, iter_num)
+            
             writer.add_scalar('loss/model_loss',
                               model1_loss, iter_num)
             writer.add_scalar('loss/r_drop_loss',

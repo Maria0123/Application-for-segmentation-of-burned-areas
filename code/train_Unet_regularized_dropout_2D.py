@@ -25,6 +25,7 @@ from dataloaders.CaBuAr import CaBuAr
 from dataloaders.dataset import TwoStreamBatchSampler
 from networks.net_factory import net_factory
 from utils import losses, metrics, ramps
+from utils.stats_writer import writeNetStats
 from val_2D import test_single_volume, test_single_volume_cbr
 
 parser = argparse.ArgumentParser()
@@ -223,6 +224,10 @@ def train(args, snapshot_path):
             writer.add_scalar('lr', lr_, iter_num)
             writer.add_scalar(
                 'consistency_weight/consistency_weight', consistency_weight, iter_num)
+            
+            if args.with_stats:
+                writeNetStats(model1, model2, writer, iter_num)
+            
             writer.add_scalar('loss/model1_loss',
                               model1_loss, iter_num)
             writer.add_scalar('loss/model2_loss',
