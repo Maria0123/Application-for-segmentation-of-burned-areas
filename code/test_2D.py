@@ -6,13 +6,14 @@ import h5py
 import numpy as np
 import SimpleITK as sitk
 import torch
-from medpy import metric
+from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score
 from scipy.ndimage import zoom
 from scipy.ndimage.interpolation import zoom
 from tqdm import tqdm
 from tensorboardX import SummaryWriter
 
 # from networks.efficientunet import UNet
+from utils.metrics import intersection_over_union
 from networks.net_factory import net_factory
 
 parser = argparse.ArgumentParser()
@@ -28,21 +29,16 @@ parser.add_argument('--labeled_num', type=int, default=0,
                     help='labeled data')
 
 def calculate_metric_percase(pred, gt):
-    pred[pred > 0] = 1
-    gt[gt > 0] = 1
+    pred = np.ravel(pred)
+    gt = np.ravel(gt)
 
-    dice = metric.binary.dc(pred, gt)
-    jc = metric.binary.jc(pred, gt)
+    precision = precision_score(pred, gt)
+    recall = recall_score(pred, gt)
+    f1 = f1_score(pred, gt)
+    accuracy = accuracy_score(pred, gt)
+    iou = intersection_over_union(pred, gt)
     
-    if pred.sum() > 0:
-        hd95 = metric.binary.hd95(pred, gt)
-
-        precision = metric.binary.precision(pred, gt)
-        recall = metric.binary.recall(pred, gt)
-        f1 = 2 * (precision * recall) / (precision + recall + 1e-5)  
-        return dice, hd95, jc, f1
-
-    return dice, 100, jc, 0
+    return precision, recall, f1, accuracy, iou
 
 def test_single_volume(case, net, test_save_path, FLAGS, writer, i=0):
     h5f = h5py.File(FLAGS.root_path + "/data/slices/{}.h5".format(case), 'r')
@@ -72,10 +68,11 @@ def test_single_volume(case, net, test_save_path, FLAGS, writer, i=0):
     writer.add_image("Prediction", prediction * 50, i)
     writer.add_image("GroundTruth", label * 50, i)
 
-    writer.add_scalar('info/val_mean_dice', metric[0], i)
-    writer.add_scalar('info/val_mean_hd95', metric[1], i)
-    writer.add_scalar('info/val_mean_jc', metric[2], i)
-    writer.add_scalar('info/val_mean_f1', metric[3], i)
+    writer.add_scalar('info/val_mean_precision', metric[0], i)
+    writer.add_scalar('info/val_mean_recall', metric[1], i)
+    writer.add_scalar('info/val_mean_f1', metric[2], i)
+    writer.add_scalar('info/val_mean_accuracy', metric[3], i)
+    writer.add_scalar('info/val_mean_iou', metric[4], i)
 
     return metric
 
