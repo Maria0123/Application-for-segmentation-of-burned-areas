@@ -59,7 +59,7 @@ parser.add_argument('--ema_decay', type=float,  default=0.99, help='ema_decay')
 parser.add_argument('--consistency_type', type=str,
                     default="mse", help='consistency_type')
 parser.add_argument('--consistency', type=float,
-                    default=10000.0, help='consistency')
+                    default=4.0, help='consistency')
 parser.add_argument('--consistency_rampup', type=float,
                     default=200.0, help='consistency_rampup')
 
@@ -196,9 +196,12 @@ def train(args, snapshot_path):
             outputs2 = model_unsupervised(unlabeled_volume_batch)
             pseudo_labels = torch.softmax(outputs2, dim=1)
 
-            with torch.no_grad():
-                unsupervised_labels = model_supervised(unlabeled_volume_batch)
-                unsupervised_pseudo_labels = torch.softmax(unsupervised_labels, dim=1)
+            # with torch.no_grad():
+            unsupervised_labels = model_supervised(unlabeled_volume_batch)
+            unsupervised_pseudo_labels = torch.softmax(unsupervised_labels, dim=1)
+            # with torch.no_grad():
+            #     unsupervised_labels = model_supervised(unlabeled_volume_batch)
+            #     unsupervised_pseudo_labels = torch.softmax(unsupervised_labels, dim=1)
 
             consistency_weight = get_current_consistency_weight(iter_num // 150)
 
@@ -244,7 +247,7 @@ def train(args, snapshot_path):
             writer.add_scalar('loss/total_loss',
                               loss, iter_num) 
                                     
-            logging.info('iteration %d : supervised loss : %f unsupervised loss : %f' % (iter_num, model_supervised_loss.item(), consistency_weight * r_drop_loss.item()))
+            logging.info('iteration %d : supervised loss : %f unsupervised loss : %f r_drop_loss: %f' % (iter_num, model_supervised_loss.item(), consistency_weight * r_drop_loss.item(), r_drop_loss))
 
             if iter_num % 50 == 0:
                 image = volume_batch[0, 2:4, :, :]
