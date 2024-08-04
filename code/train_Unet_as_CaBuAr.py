@@ -93,7 +93,6 @@ def train(args, snapshot_path):
     iter_num = 0
     max_epoch = max_iterations // len(trainloader) + 1
     best_performance_ce = 0.0
-    best_performance_hd95 = 1000.0
 
     iterator = tqdm(range(max_epoch), ncols=70)
     for epoch_num in iterator:
@@ -125,7 +124,7 @@ def train(args, snapshot_path):
                 'iteration : %d loss: %f' %
                 (iter_num, loss.item()))
 
-            if iter_num % 20 == 0:
+            if iter_num % 50 == 0:
                 image = volume_batch[0, 2:4, :, :]
                 writer.add_image('train/Image', image, iter_num)
                 outputs = torch.argmax(torch.softmax(
@@ -164,17 +163,6 @@ def train(args, snapshot_path):
                     save_best = os.path.join(snapshot_path,
                                              '{}_best_model.pth'.format(args.model))
                     
-                    torch.save(model.state_dict(), save_mode_path)
-                    torch.save(model.state_dict(), save_best)
-
-                performance_hd95 = performance[1]
-                if performance_hd95 < best_performance_hd95:
-                    best_performance_hd95 = performance_hd95
-                    save_mode_path = os.path.join(snapshot_path,
-                                                  'iter_{}_hd95_{}.pth'.format(
-                                                      iter_num, round(best_performance_hd95, 4)))
-                    save_best = os.path.join(snapshot_path,
-                                             '{}_best_model_hd95.pth'.format(args.model))
                     torch.save(model.state_dict(), save_mode_path)
                     torch.save(model.state_dict(), save_best)
 
