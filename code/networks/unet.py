@@ -3,6 +3,7 @@
 The implementation is borrowed from: https://github.com/HiLab-git/PyMIC
 """
 from __future__ import division, print_function
+import math
 
 import numpy as np
 import torch
@@ -309,6 +310,76 @@ class FeatureNoise(nn.Module):
         return x
 
 
+class PositionalEncoding(nn.Module):
+  # implementation from: https://medium.com/@hunter-j-phillips/positional-encoding-7a93db4109e6
+  def __init__(self, d_model: int, dropout: float = 0.1, max_length: int = 5000):
+    """
+    Args:
+      d_model:      dimension of embeddings
+      dropout:      randomly zeroes-out some of the input
+      max_length:   max sequence length
+    """
+    # inherit from Module
+    super().__init__()     
+
+    # initialize dropout                  
+    self.dropout = nn.Dropout(p=dropout)      
+
+    # create tensor of 0s
+    pe = torch.zeros(max_length, d_model)    
+
+    # create position column   
+    k = torch.arange(0, max_length).unsqueeze(1)  
+
+    # calc divisor for positional encoding 
+    div_term = torch.exp(                                 
+            torch.arange(0, d_model, 2) * -(math.log(10000.0) / d_model)
+    )
+
+    # calc sine on even indices
+    pe[:, 0::2] = torch.sin(k * div_term)    
+
+    # calc cosine on odd indices   
+    pe[:, 1::2] = torch.cos(k * div_term)  
+
+    # add dimension     
+    pe = pe.unsqueeze(0)          
+
+    # buffers are saved in state_dict but not trained by the optimizer                        
+    self.register_buffer("pe", pe)                        
+
+  def forward(self, x: torch.Tensor):
+    """
+    Args:
+      x:        embeddings (batch_size, seq_length, d_model)
+    
+    Returns:
+                embeddings + positional encodings (batch_size, seq_length, d_model)
+    """
+    # add positional encoding to the embeddings
+    x = x + self.pe[:, : x.size(1)].requires_grad_(False) 
+
+    # perform dropout
+    return self.dropout(x)
+
+
+class PixelAttentionBlock(nn.Module):
+    # implementation from: https://github.com/zhaohengyuan1/PAN/blob/master/codes/models/archs/PAN_arch.py
+    def __init__(self, nf):
+
+        super(PixelAttentionBlock, self).__init__()
+        self.conv = nn.Conv2d(nf, nf, 1)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+
+        y = self.conv(x)
+        y = self.sigmoid(y)
+        out = torch.mul(x, y)
+
+        return out
+    
+
 class UNet(nn.Module):
     def __init__(self, in_chns, class_num, with_stats):
         super(UNet, self).__init__()
@@ -399,3 +470,25 @@ class UNet_DS(nn.Module):
         return dp0_out_seg, dp1_out_seg, dp2_out_seg, dp3_out_seg
 
 
+class UNet_APE(nn.Module):
+    # UNet With Attention And Positional Encoding
+    def __init__(self, in_chns, class_num, with_stats):
+        super(UNet_APE, self).__init__()
+
+        params = {'in_chns': in_chns,
+                  'feature_chns': [16, 32, 64, 128, 256],
+                  'dropout': [0.05, 0.1, 0.2, 0.3, 0.5],
+                  'class_num': class_num,
+                  'bilinear': False,
+                  'acti_func': 'relu'}
+
+        self.encoder = Encoder(params, with_stats)
+        self.decoder = Decoder(params, with_stats)
+
+        self.positional_encoding = PositionalEncoding(256)
+        self.pixel_attention = PixelAttentionBlock(256)
+
+    def forward(self, x):
+        feature = self.encoder(x)
+        output = self.decoder(feature)
+        return output

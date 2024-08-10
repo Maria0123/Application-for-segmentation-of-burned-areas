@@ -2,7 +2,7 @@ import torch
 from networks.efficientunet import Effi_UNet
 from networks.enet import ENet
 from networks.pnet import PNet2D
-from networks.unet import UNet, UNet_DS, UNet_URPC, UNet_CCT
+from networks.unet import UNet, UNet_APE, UNet_DS, UNet_URPC, UNet_CCT
 import argparse
 from networks.vision_transformer import SwinUnet as ViT_seg
 from networks.config import get_config
@@ -94,6 +94,8 @@ def net_factory(net_type="unet", in_chns=1, class_num=3, with_stats=False):
         net = PNet2D(in_chns, class_num, 64, [1, 2, 4, 8, 16])
     elif net_type == "nnUNet":
         net = initialize_network(num_classes=class_num)
+    elif net_type == "unet_APE":
+        net = UNet_APE(in_chns=in_chns, class_num=class_num, with_stats=with_stats)
     else:
         net = None
 
