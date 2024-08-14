@@ -269,6 +269,50 @@ class Decoder_URPC(nn.Module):
         dp0_out_seg = self.out_conv(x)
         return dp0_out_seg, dp1_out_seg, dp2_out_seg, dp3_out_seg
 
+class Decoder_APE(nn.Module):
+    def __init__(self, params, with_stats):
+        super(Decoder_APE, self).__init__()
+        self.params = params
+        self.in_chns = self.params['in_chns']
+        self.ft_chns = self.params['feature_chns']
+        self.n_class = self.params['class_num']
+        self.bilinear = self.params['bilinear']
+        assert (len(self.ft_chns) == 5)
+
+        self.up1 = UpBlock(
+            self.ft_chns[4], self.ft_chns[3], self.ft_chns[3], dropout_p=0.0, with_stats=with_stats)
+        self.positional_encoding = PositionalEncoding(self.ft_chns[3])
+        self.up2 = UpBlock(
+            self.ft_chns[3], self.ft_chns[2], self.ft_chns[2], dropout_p=0.0, with_stats=with_stats)
+        self.positional_encoding = PositionalEncoding(self.ft_chns[2])
+        self.up3 = UpBlock(
+            self.ft_chns[2], self.ft_chns[1], self.ft_chns[1], dropout_p=0.0, with_stats=with_stats)
+        self.positional_encoding = PositionalEncoding(self.ft_chns[1])
+        self.up4 = UpBlock(
+            self.ft_chns[1], self.ft_chns[0], self.ft_chns[0], dropout_p=0.0, with_stats=with_stats)
+        self.positional_encoding = PositionalEncoding(self.ft_chns[0])
+        # self.pixel_attention = PixelAttentionBlock(2)
+
+        self.out_conv = nn.Conv2d(self.ft_chns[0], self.n_class,
+                                  kernel_size=3, padding=1)
+
+    def forward(self, feature):
+        x0 = feature[0]
+        x1 = feature[1]
+        x2 = feature[2]
+        x3 = feature[3]
+        x4 = feature[4]
+
+        x = self.up1(x4, x3)
+        x = self.up2(x, x2)
+        x = self.up3(x, x1)
+        x = self.up4(x, x0)
+
+        x = self.positional_encoding(x)
+        # x = self.pixel_attention(x)
+
+        output = self.out_conv(x)
+        return output
 
 def Dropout(x, p=0.3):
     x = torch.nn.functional.dropout(x, p)
@@ -311,56 +355,33 @@ class FeatureNoise(nn.Module):
 
 
 class PositionalEncoding(nn.Module):
-  # implementation from: https://medium.com/@hunter-j-phillips/positional-encoding-7a93db4109e6
-  def __init__(self, d_model: int, dropout: float = 0.1, max_length: int = 5000):
-    """
-    Args:
-      d_model:      dimension of embeddings
-      dropout:      randomly zeroes-out some of the input
-      max_length:   max sequence length
-    """
-    # inherit from Module
-    super().__init__()     
+    # implementation: https://github.com/wzlxjtu/PositionalEncoding2D/blob/master/positionalembedding2d.py
+    def __init__(self, d_model: int, height: int = 128, width: int = 128, dropout: float = 0.1):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(dropout)
+        
+        pe = torch.zeros(d_model, height, width)
+        # Each dimension use half of d_model
+        d_model = int(d_model / 2)
+        div_term = torch.exp(torch.arange(0., d_model, 2) *
+                            -(math.log(10000.0) / d_model))
+        pos_w = torch.arange(0., width).unsqueeze(1)
+        pos_h = torch.arange(0., height).unsqueeze(1)
+        pe[0:d_model:2, :, :] = torch.sin(pos_w * div_term).transpose(0, 1).unsqueeze(1).repeat(1, height, 1)
+        pe[1:d_model:2, :, :] = torch.cos(pos_w * div_term).transpose(0, 1).unsqueeze(1).repeat(1, height, 1)
+        pe[d_model::2, :, :] = torch.sin(pos_h * div_term).transpose(0, 1).unsqueeze(2).repeat(1, 1, width)
+        pe[d_model + 1::2, :, :] = torch.cos(pos_h * div_term).transpose(0, 1).unsqueeze(2).repeat(1, 1, width)
 
-    # initialize dropout                  
-    self.dropout = nn.Dropout(p=dropout)      
+        if torch.backends.mps.is_available():
+            self.pe = pe.to(torch.float32).to("mps")
+        else:
+            self.pe = pe.cuda()
+        
+    def forward(self, x):
+        pe = self.pe.unsqueeze(0).expand(x.size(0), -1, -1, -1)
+        x = x + pe
 
-    # create tensor of 0s
-    pe = torch.zeros(max_length, d_model)    
-
-    # create position column   
-    k = torch.arange(0, max_length).unsqueeze(1)  
-
-    # calc divisor for positional encoding 
-    div_term = torch.exp(                                 
-            torch.arange(0, d_model, 2) * -(math.log(10000.0) / d_model)
-    )
-
-    # calc sine on even indices
-    pe[:, 0::2] = torch.sin(k * div_term)    
-
-    # calc cosine on odd indices   
-    pe[:, 1::2] = torch.cos(k * div_term)  
-
-    # add dimension     
-    pe = pe.unsqueeze(0)          
-
-    # buffers are saved in state_dict but not trained by the optimizer                        
-    self.register_buffer("pe", pe)                        
-
-  def forward(self, x: torch.Tensor):
-    """
-    Args:
-      x:        embeddings (batch_size, seq_length, d_model)
-    
-    Returns:
-                embeddings + positional encodings (batch_size, seq_length, d_model)
-    """
-    # add positional encoding to the embeddings
-    x = x + self.pe[:, : x.size(1)].requires_grad_(False) 
-
-    # perform dropout
-    return self.dropout(x)
+        return self.dropout(x)
 
 
 class PixelAttentionBlock(nn.Module):
@@ -483,12 +504,10 @@ class UNet_APE(nn.Module):
                   'acti_func': 'relu'}
 
         self.encoder = Encoder(params, with_stats)
-        self.decoder = Decoder(params, with_stats)
-
-        self.positional_encoding = PositionalEncoding(256)
-        self.pixel_attention = PixelAttentionBlock(256)
+        self.decoder = Decoder_APE(params, with_stats)
 
     def forward(self, x):
         feature = self.encoder(x)
         output = self.decoder(feature)
+
         return output

@@ -13,7 +13,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from tensorboardX import SummaryWriter
-from torch.nn import BCEWithLogitsLoss
 from torch.nn.modules.loss import CrossEntropyLoss
 from torch.utils.data import DataLoader
 from torchvision import transforms
@@ -21,10 +20,9 @@ from torchvision.utils import make_grid
 from tqdm import tqdm
 
 from dataloaders import utils
-from dataloaders.dataset import (BaseDataSets, RandomGenerator,
-                                 TwoStreamBatchSampler)
+from dataloaders.dataset import (BaseDataSets, TwoStreamBatchSampler)
 from networks.net_factory import net_factory
-from utils import losses, metrics, ramps
+from utils import losses, ramps
 from val_2D import test_single_volume
 
 parser = argparse.ArgumentParser()
@@ -127,17 +125,25 @@ def train(args, snapshot_path):
     def worker_init_fn(worker_id):
         random.seed(args.seed + worker_id)
 
-    db_train = BaseDataSets(base_dir=args.root_path, split="train", num=None, transform=transforms.Compose([
-        RandomGenerator(args.patch_size)
-    ]))
+    db_train = BaseDataSets(base_dir=args.root_path, split="train", num=None, transform=transforms.Compose([]))
     db_val = BaseDataSets(base_dir=args.root_path, split="val")
 
     total_slices = len(db_train)
     labeled_slice = patients_to_slices(args.root_path, args.labeled_num)
-    print("Total silices is: {}, labeled slices is: {}".format(
-        total_slices, labeled_slice))
-    labeled_idxs = list(range(0, labeled_slice))
-    unlabeled_idxs = list(range(labeled_slice, total_slices))
+
+    total_slices = len(db_train)
+    labeled_slice = patients_to_slices(args.root_path, args.labeled_num)
+    
+    # labeled_idxs = list(range(0, labeled_slice))
+    # unlabeled_idxs = list(range(labeled_slice, total_slices))
+
+    indices = list(range(total_slices))
+    labeled_idxs = random.sample(indices, labeled_slice)
+    unlabeled_idxs = [i for i in indices if i not in labeled_idxs]
+
+    print("Total silices is: {}, labeled slices is: {}, unlabeld slices is: {}".format(
+        total_slices, len(labeled_idxs), len(unlabeled_idxs))) 
+    
     batch_sampler = TwoStreamBatchSampler(
         labeled_idxs, unlabeled_idxs, batch_size, batch_size-args.labeled_bs)
 

@@ -13,20 +13,16 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from tensorboardX import SummaryWriter
-from torch.nn import BCEWithLogitsLoss
 from torch.nn.modules.loss import CrossEntropyLoss
 from torch.utils.data import DataLoader
-from torchvision import transforms
-from torchvision.utils import make_grid
 from tqdm import tqdm
 
-from dataloaders import utils
 from dataloaders.CaBuAr import CaBuAr
 from dataloaders.dataset import TwoStreamBatchSampler
 from networks.net_factory import net_factory
-from utils import losses, metrics, ramps
+from utils import losses, ramps
 from utils.stats_writer import writeNetStats
-from val_2D import test_single_volume, test_single_volume_cbr
+from val_2D import test_single_volume_cbr
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--root_path', type=str,
@@ -91,14 +87,8 @@ def xavier_normal_init_weight(model):
 
 def patients_to_slices(dataset, patiens_num):
     ref_dict = None
-    if "ACDC" in dataset:
-        ref_dict = {"3": 68, "7": 136,
-                    "14": 256, "21": 396, "28": 512, "35": 664, "140": 1312}
-    elif "Prostate" in dataset:
-        ref_dict = {"2": 27, "4": 53, "8": 120,
-                    "12": 179, "16": 256, "21": 312, "42": 623}
-    elif "CaBuAr" in dataset:
-        ref_dict = {"3": 15, "7": 70, "13": 110}
+    if "CaBuAr" in dataset:
+        ref_dict = {"2": 20, "4": 40, "6": 60, "7": 70, "8": 80, "10": 100}
     else:
         print("Error")
     return ref_dict[str(patiens_num)]
@@ -137,18 +127,22 @@ def train(args, snapshot_path):
     def worker_init_fn(worker_id):
         random.seed(args.seed + worker_id)
 
-    db_train = CaBuAr(base_dir=args.root_path, split="train", num=None) #, transform=transforms.Compose([
-    #     RandomNoise(),
-    #     RandomFlip(),
-    #     ToTensor()
-    # ]))
+    db_train = CaBuAr(base_dir=args.root_path, split="train", num=None)
     db_val = CaBuAr(base_dir=args.root_path, split="val")
 
     total_slices = len(db_train)
     labeled_slice = patients_to_slices(args.root_path, args.labeled_num)
-    print("Total silices is: {}, labeled slices is: {}".format(
-        total_slices, labeled_slice))
-    labeled_idxs = list(range(0, labeled_slice))
+    
+    # labeled_idxs = list(range(0, labeled_slice))
+    # unlabeled_idxs = list(range(labeled_slice, total_slices))
+
+    indices = list(range(total_slices))
+    labeled_idxs = random.sample(indices, labeled_slice)
+    unlabeled_idxs = [i for i in indices if i not in labeled_idxs]
+
+    print("Total silices is: {}, labeled slices is: {}, unlabeld slices is: {}".format(
+        total_slices, len(labeled_idxs), len(unlabeled_idxs))) 
+    
     unlabeled_idxs = list(range(labeled_slice, total_slices))
     batch_sampler = TwoStreamBatchSampler(
         labeled_idxs, unlabeled_idxs, batch_size, batch_size-args.labeled_bs)
