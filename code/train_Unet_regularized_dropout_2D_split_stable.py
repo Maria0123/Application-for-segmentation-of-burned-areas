@@ -252,7 +252,7 @@ def train(args, snapshot_path):
                 labs = label_batch[0, ...] * 50
                 writer.add_image('train/GroundTruth', labs, iter_num)
 
-            if iter_num > 0 and iter_num % 200 == 0:
+            if iter_num > 0 and iter_num % 300 == 0:
                 model_supervised.eval()
                 metric_list = 0.0
                 for i_batch, sampled_batch in enumerate(valloader):
@@ -274,7 +274,7 @@ def train(args, snapshot_path):
                     'model_supervised iteration %d : dice: %f precision: %f recall: %f f1: %f accuracy: %f iou: %f' % 
                         (iter_num, performance1[0], performance1[1], performance1[2], performance1[3], performance1[4], performance1[5]))
   
-                performance1_mean = performance1[3] # np.mean(performance1)
+                performance1_mean = performance1[0]
 
                 if performance1_mean > best_performance1:
                     best_performance1 = performance1_mean
@@ -309,7 +309,7 @@ def train(args, snapshot_path):
                     'model_unsupervised iteration %d : dice: %f precision: %f recall: %f f1: %f accuracy: %f iou: %f' % 
                         (iter_num, performance2[0], performance2[1], performance2[2], performance2[3], performance2[4], performance2[5]))
                  
-                performance2_mean = performance1[3] # np.mean(performance2)
+                performance2_mean = performance1[0]
 
                 if performance2_mean > best_performance2:
                     best_performance2 = performance2_mean

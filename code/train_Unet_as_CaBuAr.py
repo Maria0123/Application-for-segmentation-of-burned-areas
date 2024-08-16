@@ -15,7 +15,6 @@ from tensorboardX import SummaryWriter
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from dataloaders import utils
 from dataloaders.CaBuAr import CaBuAr
 from networks.net_factory import net_factory
 from utils import losses
@@ -78,7 +77,7 @@ def train(args, snapshot_path):
     optimizer = optim.AdamW(model.parameters(), lr=base_lr, weight_decay=0.01)
     scheduler = StepLR(optimizer, step_size=15, gamma=0.1)
 
-    loss_dc_hd = losses.DiceHD95Loss(num_classes, args.alpha_ce)
+    loss_dc_hd = losses.DiceLoss(num_classes)
 
     writer = SummaryWriter(snapshot_path + '/log')
     logging.info("{} iterations per epoch".format(len(trainloader)))
@@ -161,7 +160,7 @@ def train(args, snapshot_path):
 
                 model.train()
 
-            if iter_num % 300 == 0:
+            if iter_num % 3000 == 0:
                 save_mode_path = os.path.join(
                     snapshot_path, 'iter_' + str(iter_num) + '.pth')
                 torch.save(model.state_dict(), save_mode_path)

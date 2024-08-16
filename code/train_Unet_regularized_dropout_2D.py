@@ -58,9 +58,6 @@ parser.add_argument('--consistency', type=float,
 parser.add_argument('--consistency_rampup', type=float,
                     default=200.0, help='consistency_rampup')
 
-# loss function
-parser.add_argument('--alpha_ce', type=float,  default=1, help='dice loss weigh')
-
 # net stats
 parser.add_argument('--with_stats', type=bool,  default=True, help='net stats')
 
@@ -158,7 +155,7 @@ def train(args, snapshot_path):
     optimizer2 = optim.AdamW(model2.parameters(), lr=base_lr, weight_decay=0.01)
     
     ce_loss = CrossEntropyLoss()
-    dc_hd_loss = losses.DiceHD95Loss(num_classes, args.alpha_ce)
+    dc_hd_loss = losses.DiceLoss(num_classes)
 
     writer = SummaryWriter(snapshot_path + '/log')
     logging.info("{} iterations per epoch".format(len(trainloader)))
