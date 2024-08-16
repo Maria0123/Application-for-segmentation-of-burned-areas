@@ -40,18 +40,30 @@ parser.add_argument('--patch_size', type=list,  default=[128, 128],
 parser.add_argument('--seed', type=int,  default=42, help='random seed')
 parser.add_argument('--num_classes', type=int,  default=2,
                     help='output channel of network')
-parser.add_argument('--alpha_ce', type=float,  default=1, help='dice loss weight')
+parser.add_argument('--scenario', type=str,  default=None, help='scenario B1, B3, B4, or None')
 
 args = parser.parse_args()
+
+def get_chanels():
+    match (args.scenario):
+        case 'B1':
+            return 1
+        case 'B3':
+            return 3
+        case 'B4':
+            return 4
+        case _:
+            return 12
 
 def train(args, snapshot_path):
     base_lr = args.base_lr
     num_classes = args.num_classes
     batch_size = args.batch_size
     max_iterations = args.max_iterations
+    chanels = get_chanels()
 
     def create_model(ema=False):
-        model = net_factory(net_type=args.model, in_chns=12,
+        model = net_factory(net_type=args.model, in_chns=chanels,
                             class_num=num_classes)
         return model
 
@@ -60,8 +72,8 @@ def train(args, snapshot_path):
     def worker_init_fn(worker_id):
         random.seed(args.seed + worker_id)
 
-    db_train = CaBuAr(base_dir=args.root_path, split="train", num=None)
-    db_val = CaBuAr(base_dir=args.root_path, split="val")
+    db_train = CaBuAr(base_dir=args.root_path, split="train", num=None, scenario=args.scenario)
+    db_val = CaBuAr(base_dir=args.root_path, split="val", scenario=args.scenario)
 
     total_slices = len(db_train)
     print("Total silices is: {}".format(total_slices))
@@ -117,7 +129,7 @@ def train(args, snapshot_path):
                 (iter_num, loss.item()))
 
             if iter_num % 50 == 0:
-                image = volume_batch[0, 2:4, :, :]
+                image = sampled_batch['oryginal'][0, 2:4, :, :]
                 writer.add_image('train/Image', image, iter_num)
                 outputs = torch.argmax(torch.softmax(
                     outputs, dim=1), dim=1, keepdim=True)

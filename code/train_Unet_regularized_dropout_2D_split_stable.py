@@ -60,8 +60,21 @@ parser.add_argument('--consistency_rampup', type=float,
 # net stats
 parser.add_argument('--with_stats', type=bool,  default=False, help='net stats')
 
+parser.add_argument('--scenario', type=str,  default=None, help='scenario B1, B3, B4, or None')
+
 args = parser.parse_args()
 
+def get_chanels():
+    match (args.scenario):
+        case 'B1':
+            return 1
+        case 'B3':
+            return 3
+        case 'B4':
+            return 4
+        case _:
+            return 12
+        
 def patients_to_slices(dataset, patiens_num):
     ref_dict = None
     if "CaBuAr" in dataset:
@@ -80,9 +93,10 @@ def train(args, snapshot_path):
     num_classes = args.num_classes
     batch_size = args.batch_size
     max_iterations = args.max_iterations
+    chanels = get_chanels()
 
     def create_model(ema=False, with_stats=False):
-        model = net_factory(net_type=args.model, in_chns=12,
+        model = net_factory(net_type=args.model, in_chns=chanels,
                             class_num=num_classes, with_stats = with_stats)
         if ema:
             for param in model.parameters():
@@ -95,8 +109,8 @@ def train(args, snapshot_path):
     def worker_init_fn(worker_id):
         random.seed(args.seed + worker_id)
 
-    db_train = CaBuAr(base_dir=args.root_path, split="train", num=None)
-    db_val = CaBuAr(base_dir=args.root_path, split="val")
+    db_train = CaBuAr(base_dir=args.root_path, split="train", num=None, scenario=args.scenario)
+    db_val = CaBuAr(base_dir=args.root_path, split="val", scenario=args.scenario)
 
     total_slices = len(db_train)
     labeled_slice = patients_to_slices(args.root_path, args.labeled_num)
@@ -239,7 +253,7 @@ def train(args, snapshot_path):
             logging.info('iter %d : supervised %f supervised_2 %f drop %f unsupervised %f' % (iter_num, model_supervised_loss, model_supervised_2_loss, drop_loss, model_unsupervised_loss))
 
             if iter_num % 100 == 0:
-                image = volume_batch[0, 2:4, :, :]
+                image = sampled_batch['oryginal'][0, 2:4, :, :]
                 writer.add_image('train/Image', image, iter_num)
                 outputs = torch.argmax(torch.softmax(
                     outputs1, dim=1), dim=1, keepdim=True)

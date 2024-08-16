@@ -24,6 +24,7 @@ class CaBuAr(Dataset):
         transform=None,
         ops_weak=None,
         ops_strong=None,
+        scenario=None
     ):
         self._base_dir = base_dir
         self.sample_list = []
@@ -31,6 +32,7 @@ class CaBuAr(Dataset):
         self.transform = transform
         self.ops_weak = ops_weak
         self.ops_strong = ops_strong
+        self.scenario = scenario
 
         assert bool(ops_weak) == bool(
             ops_strong
@@ -60,11 +62,25 @@ class CaBuAr(Dataset):
             h5f = h5py.File(self._base_dir + "/data/slices/{}.h5".format(case), "r")
         image = h5f["image"][:]
         label = h5f["label"][:]
-        sample = {"image": image, "label": label}
+        sample = {"image": image, "label": label, "oryginal": image}
         if self.split == "train":
             if None not in (self.ops_weak, self.ops_strong):
                 sample = self.transform(sample, self.ops_weak, self.ops_strong)
             elif self.transform:
                 sample = self.transform(sample)
         sample["idx"] = idx
+        if self.scenario:
+            match (self.scenario):
+                case "B1":
+                    indices = [6]
+                    sample['image'] = sample['image'][indices, :, :]
+                case "B3":
+                    indices = [1, 10, 11]
+                    sample['image'] = sample['image'][indices, :, :]
+                case "B4":
+                    indices = [1, 6, 10, 11]
+                    sample['image'] = sample['image'][indices, :, :]
+                case _:
+                    sample = sample
+                
         return sample
