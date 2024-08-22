@@ -69,7 +69,7 @@ class DiceLoss(nn.Module):
         target = self._one_hot_encoder(target)
         if weight is None:
             weight = [1] * self.n_classes
-        assert inputs.size() == target.size(), 'predict & target shape do not match'
+        assert inputs.size() == target.size(), f'predict & target shape do not match {inputs.size()}, {target.size()}'
         class_wise_dice = []
         loss = 0.0
         for i in range(0, self.n_classes):
@@ -77,6 +77,24 @@ class DiceLoss(nn.Module):
             class_wise_dice.append(1.0 - dice.item())
             loss += dice * weight[i]
         return loss / self.n_classes
+
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=1, gamma=2, reduction='batchmean'):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+
+    def forward(self, inputs, targets):
+        BCE_loss = nn.CrossEntropyLoss()(inputs, targets.squeeze())
+        pt = torch.exp(-BCE_loss)
+        F_loss = self.alpha * (1 - pt) ** self.gamma * BCE_loss
+        if self.reduction == 'batchmean':
+            return torch.mean(F_loss)
+        elif self.reduction == 'sum':
+            return torch.sum(F_loss)
+        else:
+            return F_loss
 
 def compute_kl_loss(p, q):
     p_loss = F.kl_div(F.log_softmax(p, dim=-1),

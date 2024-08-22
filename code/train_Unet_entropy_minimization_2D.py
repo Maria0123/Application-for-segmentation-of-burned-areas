@@ -17,7 +17,6 @@ from tqdm import tqdm
 
 from utils import losses
 from dataloaders.CaBuAr import CaBuAr
-from dataloaders import utils
 from dataloaders.dataset import TwoStreamBatchSampler
 from networks.net_factory import net_factory
 from utils import ramps
@@ -58,8 +57,7 @@ parser.add_argument('--consistency', type=float,
 parser.add_argument('--consistency_rampup', type=float,
                     default=200.0, help='consistency_rampup')
 
-# loss function
-parser.add_argument('--alpha_ce', type=float,  default=1, help='dice loss weigh')
+parser.add_argument('--random', type=bool,  default=False, help='test on random data')
 
 args = parser.parse_args()
 
@@ -94,12 +92,13 @@ def train(args, snapshot_path):
     total_slices = len(db_train)
     labeled_slice = patients_to_slices(args.root_path, args.labeled_num)
     
-    # labeled_idxs = list(range(0, labeled_slice))
-    # unlabeled_idxs = list(range(labeled_slice, total_slices))
-
-    indices = list(range(total_slices))
-    labeled_idxs = random.sample(indices, labeled_slice)
-    unlabeled_idxs = [i for i in indices if i not in labeled_idxs]
+    if args.random:
+        indices = list(range(total_slices))
+        labeled_idxs = random.sample(indices, labeled_slice)
+        unlabeled_idxs = [i for i in indices if i not in labeled_idxs]
+    else:
+        labeled_idxs = list(range(0, labeled_slice))
+        unlabeled_idxs = list(range(labeled_slice, total_slices))
 
     print("Total silices is: {}, labeled slices is: {}, unlabeld slices is: {}".format(
         total_slices, len(labeled_idxs), len(unlabeled_idxs))) 
@@ -121,7 +120,7 @@ def train(args, snapshot_path):
     scheduler = StepLR(optimizer, step_size=15, gamma=0.1)
 
     ce_loss = CrossEntropyLoss()
-    dc_hd_loss = losses.DiceHD95Loss(num_classes, args.alpha_ce)
+    dc_hd_loss = losses.DiceLoss(num_classes)
 
     writer = SummaryWriter(snapshot_path + '/log')
     logging.info("{} iterations per epoch".format(len(trainloader)))
@@ -129,7 +128,6 @@ def train(args, snapshot_path):
     iter_num = 0
     max_epoch = max_iterations // len(trainloader) + 1
     best_performance_ce = 0.0
-    best_performance_hd95 = 1000.0
 
     iterator = tqdm(range(max_epoch), ncols=70)
     for epoch_num in iterator:
@@ -182,7 +180,7 @@ def train(args, snapshot_path):
                 'iteration %d : loss : %f, loss_ce: %f, loss_dc_hd: %f' %
                 (iter_num, loss.item(), loss_ce.item(), loss_dc_hd.item()))
 
-            if iter_num % 20 == 0:
+            if iter_num % 100 == 0:
                 image = volume_batch[1, 0:1, :, :]
                 writer.add_image('train/Image', image, iter_num)
                 outputs = torch.argmax(torch.softmax(
@@ -203,16 +201,18 @@ def train(args, snapshot_path):
                 metric_list = metric_list / len(db_val)
                 performance = np.mean(metric_list, axis=0)
 
-                writer.add_scalar('info/val_mean_dice', performance[0], iter_num)
-                writer.add_scalar('info/val_mean_hd95', performance[1], iter_num)
-                writer.add_scalar('info/val_mean_jc', performance[2], iter_num)
-                writer.add_scalar('info/val_mean_f1', performance[3], iter_num)
+                writer.add_scalar('metric_val/supervised_dice', performance[0], iter_num)
+                writer.add_scalar('metric_val/supervised_precision', performance[1], iter_num)
+                writer.add_scalar('metric_val/supervised_recall', performance[2], iter_num)
+                writer.add_scalar('metric_val/supervised_f1', performance[3], iter_num)
+                writer.add_scalar('metric_val/supervised_accuracy', performance[4], iter_num)
+                writer.add_scalar('metric_val/supervised_iou', performance[5], iter_num)
 
                 logging.info(
-                    'iteration %d : mean_dice : %f mean_hd95 : %f mean_jc : %f mean_f1 : %f' % 
-                        (iter_num, performance[0], performance[1], performance[2], performance[3]))
-                
-                performance_ce = performance[0]
+                    'model_supervised iteration %d : dice: %f precision: %f recall: %f f1: %f accuracy: %f iou: %f' % 
+                        (iter_num, performance[0], performance[1], performance[2], performance[3], performance[4], performance[5]))
+  
+                performance_ce = performance[3]
                 if performance_ce > best_performance_ce:
                     best_performance_ce = performance_ce
                     save_mode_path = os.path.join(snapshot_path,
@@ -224,20 +224,9 @@ def train(args, snapshot_path):
                     torch.save(model.state_dict(), save_mode_path)
                     torch.save(model.state_dict(), save_best)
 
-                performance_hd95 = performance[1]
-                if performance_hd95 < best_performance_hd95:
-                    best_performance_hd95 = performance_hd95
-                    save_mode_path = os.path.join(snapshot_path,
-                                                  'iter_{}_hd95_{}.pth'.format(
-                                                      iter_num, round(best_performance_hd95, 4)))
-                    save_best = os.path.join(snapshot_path,
-                                             '{}_best_model_hd95.pth'.format(args.model))
-                    torch.save(model.state_dict(), save_mode_path)
-                    torch.save(model.state_dict(), save_best)
-
                 model.train()
 
-            if iter_num % 300 == 0:
+            if iter_num % 3000 == 0:
                 save_mode_path = os.path.join(
                     snapshot_path, 'iter_' + str(iter_num) + '.pth')
                 torch.save(model.state_dict(), save_mode_path)

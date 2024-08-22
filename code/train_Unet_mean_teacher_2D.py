@@ -53,11 +53,12 @@ parser.add_argument('--ema_decay', type=float,  default=0.99, help='ema_decay')
 parser.add_argument('--consistency_type', type=str,
                     default="mse", help='consistency_type')
 parser.add_argument('--consistency', type=float,
-                    default=0.1, help='consistency')
+                    default=10.0, help='consistency')
 parser.add_argument('--consistency_rampup', type=float,
                     default=200.0, help='consistency_rampup')
 
 parser.add_argument('--scenario', type=str,  default=None, help='scenario B1, B3, B4, or None')
+parser.add_argument('--random', type=bool,  default=False, help='test on random data')
 
 args = parser.parse_args()
 
@@ -121,12 +122,13 @@ def train(args, snapshot_path):
     total_slices = len(db_train)
     labeled_slice = patients_to_slices(args.root_path, args.labeled_num)
     
-    # labeled_idxs = list(range(0, labeled_slice))
-    # unlabeled_idxs = list(range(labeled_slice, total_slices))
-
-    indices = list(range(total_slices))
-    labeled_idxs = random.sample(indices, labeled_slice)
-    unlabeled_idxs = [i for i in indices if i not in labeled_idxs]
+    if args.random:
+        indices = list(range(total_slices))
+        labeled_idxs = random.sample(indices, labeled_slice)
+        unlabeled_idxs = [i for i in indices if i not in labeled_idxs]
+    else:
+        labeled_idxs = list(range(0, labeled_slice))
+        unlabeled_idxs = list(range(labeled_slice, total_slices))
 
     print("Total silices is: {}, labeled slices is: {}, unlabeld slices is: {}".format(
         total_slices, len(labeled_idxs), len(unlabeled_idxs))) 
@@ -184,7 +186,7 @@ def train(args, snapshot_path):
                                   label_batch[:args.labeled_bs])
             
             supervised_loss = 0.5 * (loss_dc_hd + loss_ce)
-            consistency_weight = get_current_consistency_weight(iter_num//150)
+            consistency_weight = get_current_consistency_weight(iter_num)
             if iter_num < 1000:
                 consistency_loss = 0.0
             else:

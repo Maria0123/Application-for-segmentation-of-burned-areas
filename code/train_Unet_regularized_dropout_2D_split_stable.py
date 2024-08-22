@@ -53,14 +53,15 @@ parser.add_argument('--ema_decay', type=float,  default=0.99, help='ema_decay')
 parser.add_argument('--consistency_type', type=str,
                     default="mse", help='consistency_type')
 parser.add_argument('--consistency', type=float,
-                    default=4.0, help='consistency')
+                    default=200.0, help='consistency')
 parser.add_argument('--consistency_rampup', type=float,
-                    default=200.0, help='consistency_rampup')
+                    default=2000.0, help='consistency_rampup')
 
 # net stats
 parser.add_argument('--with_stats', type=bool,  default=False, help='net stats')
 
 parser.add_argument('--scenario', type=str,  default=None, help='scenario B1, B3, B4, or None')
+parser.add_argument('--random', type=bool,  default=False, help='test on random data')
 
 args = parser.parse_args()
 
@@ -115,12 +116,13 @@ def train(args, snapshot_path):
     total_slices = len(db_train)
     labeled_slice = patients_to_slices(args.root_path, args.labeled_num)
     
-    # labeled_idxs = list(range(0, labeled_slice))
-    # unlabeled_idxs = list(range(labeled_slice, total_slices))
-
-    indices = list(range(total_slices))
-    labeled_idxs = random.sample(indices, labeled_slice)
-    unlabeled_idxs = [i for i in indices if i not in labeled_idxs]
+    if args.random:
+        indices = list(range(total_slices))
+        labeled_idxs = random.sample(indices, labeled_slice)
+        unlabeled_idxs = [i for i in indices if i not in labeled_idxs]
+    else:
+        labeled_idxs = list(range(0, labeled_slice))
+        unlabeled_idxs = list(range(labeled_slice, total_slices))
 
     print("Total silices is: {}, labeled slices is: {}, unlabeld slices is: {}".format(
         total_slices, len(labeled_idxs), len(unlabeled_idxs)))    
@@ -139,7 +141,7 @@ def train(args, snapshot_path):
 
     optimizer1 = optim.AdamW(model_supervised.parameters(), lr=base_lr, weight_decay=0.01)
     optimizer2 = optim.AdamW(model_unsupervised.parameters(), lr=base_lr, weight_decay=0.01)
-    
+
     ce_loss = CrossEntropyLoss()
     mse_loss = MSELoss()
     dc_loss = losses.DiceLoss(num_classes)
@@ -323,7 +325,7 @@ def train(args, snapshot_path):
                     'model_unsupervised iteration %d : dice: %f precision: %f recall: %f f1: %f accuracy: %f iou: %f' % 
                         (iter_num, performance2[0], performance2[1], performance2[2], performance2[3], performance2[4], performance2[5]))
                  
-                performance2_mean = performance1[0]
+                performance2_mean = performance2[0]
 
                 if performance2_mean > best_performance2:
                     best_performance2 = performance2_mean

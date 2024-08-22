@@ -79,9 +79,7 @@ def train(args, snapshot_path):
     optimizer = optim.SGD(model.parameters(), lr=base_lr,
                           momentum=0.9, weight_decay=0.0001)
     dice_loss = losses.DiceLoss(num_classes)
-    hd95_loss = losses.HD95Loss(num_classes)
     loss_ce = 0.0
-    loss_hd = 0.0
     
     writer = SummaryWriter(snapshot_path + '/log')
     logging.info("{} iterations per epoch".format(len(trainloader)))
@@ -101,13 +99,8 @@ def train(args, snapshot_path):
             outputs = model(volume_batch)
             outputs_soft = torch.softmax(outputs, dim=1)
 
-            if args.alpha_ce > 0:
-                loss_ce = dice_loss(
+            loss = dice_loss(
                     outputs_soft, label_batch)
-            if args.alpha_hd > 0:
-                loss_hd = hd95_loss(
-                    outputs_soft, label_batch)
-            loss = args.alpha_ce * loss_ce + args.alpha_hd * loss_hd
 
             optimizer.zero_grad()
             loss.backward()
@@ -122,8 +115,8 @@ def train(args, snapshot_path):
             writer.add_scalar('info/loss_dice', loss, iter_num)
 
             logging.info(
-                'iteration : %d loss: %f loss_dice: %f loss_hd95: %f' %
-                (iter_num, loss.item(), loss_ce, loss_hd))
+                'iteration : %d loss: %f loss_dice: %f' %
+                (iter_num, loss.item(), loss_ce))
 
             if iter_num % 20 == 0:
                 image = volume_batch[0, 2:4, :, :]

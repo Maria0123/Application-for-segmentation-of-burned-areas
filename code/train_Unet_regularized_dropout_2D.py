@@ -54,14 +54,15 @@ parser.add_argument('--ema_decay', type=float,  default=0.99, help='ema_decay')
 parser.add_argument('--consistency_type', type=str,
                     default="mse", help='consistency_type')
 parser.add_argument('--consistency', type=float,
-                    default=4.0, help='consistency')
+                    default=100.0, help='consistency')
 parser.add_argument('--consistency_rampup', type=float,
                     default=200.0, help='consistency_rampup')
 
 # net stats
 parser.add_argument('--with_stats', type=bool,  default=True, help='net stats')
 
-parser.add_argument('--scenario', type=str,  default='B4', help='scenario B1, B3, B4, or None')
+parser.add_argument('--scenario', type=str,  default=None, help='scenario B1, B3, B4, or None')
+parser.add_argument('--random', type=bool,  default=False, help='test on random data')
 
 args = parser.parse_args()
 
@@ -143,12 +144,13 @@ def train(args, snapshot_path):
     total_slices = len(db_train)
     labeled_slice = patients_to_slices(args.root_path, args.labeled_num)
     
-    # labeled_idxs = list(range(0, labeled_slice))
-    # unlabeled_idxs = list(range(labeled_slice, total_slices))
-
-    indices = list(range(total_slices))
-    labeled_idxs = random.sample(indices, labeled_slice)
-    unlabeled_idxs = [i for i in indices if i not in labeled_idxs]
+    if args.random:
+        indices = list(range(total_slices))
+        labeled_idxs = random.sample(indices, labeled_slice)
+        unlabeled_idxs = [i for i in indices if i not in labeled_idxs]
+    else:
+        labeled_idxs = list(range(0, labeled_slice))
+        unlabeled_idxs = list(range(labeled_slice, total_slices))
 
     print("Total silices is: {}, labeled slices is: {}, unlabeld slices is: {}".format(
         total_slices, len(labeled_idxs), len(unlabeled_idxs))) 
@@ -194,7 +196,7 @@ def train(args, snapshot_path):
 
             outputs2 = model2(volume_batch)
             outputs_soft2 = torch.softmax(outputs2, dim=1)
-            consistency_weight = get_current_consistency_weight(iter_num // 150)
+            consistency_weight = get_current_consistency_weight(iter_num)
 
             loss_ce_1 = ce_loss(outputs1[:args.labeled_bs], label_batch[:args.labeled_bs].squeeze())
             loss_dc_hd_1 = dc_hd_loss(outputs_soft1[:args.labeled_bs], label_batch[:args.labeled_bs])
@@ -275,20 +277,22 @@ def train(args, snapshot_path):
                 metric_list = metric_list / len(db_val)
                 performance1 = np.mean(metric_list, axis=0)
 
-                writer.add_scalar('info/model1_val_mean_dice', performance1[0], iter_num)
-                writer.add_scalar('info/model1_val_mean_hd95', performance1[1], iter_num)
-                writer.add_scalar('info/model1_val_mean_jc', performance1[2], iter_num)
-                writer.add_scalar('info/model1_val_mean_f1', performance1[3], iter_num)
+                writer.add_scalar('metric_val/supervised_dice', performance1[0], iter_num)
+                writer.add_scalar('metric_val/supervised_precision', performance1[1], iter_num)
+                writer.add_scalar('metric_val/supervised_recall', performance1[2], iter_num)
+                writer.add_scalar('metric_val/supervised_f1', performance1[3], iter_num)
+                writer.add_scalar('metric_val/supervised_accuracy', performance1[4], iter_num)
+                writer.add_scalar('metric_val/supervised_iou', performance1[5], iter_num)
 
                 logging.info(
-                    'MODEL1 iteration %d : mean_dice : %f mean_hd95 : %f mean_jc : %f mean_f1 : %f' % 
-                        (iter_num, performance1[0], performance1[1], performance1[2], performance1[3]))
+                    'MODEL1 iteration %d : dice: %f precision: %f recall: %f f1: %f accuracy: %f iou: %f' % 
+                        (iter_num, performance1[0], performance1[1], performance1[2], performance1[3], performance1[4], performance1[5]))
   
                 performance1 = performance1[0]
                 if performance1 > best_performance1:
                     best_performance1 = performance1
                     save_mode_path = os.path.join(snapshot_path,
-                                                  'model1_iter_{}_dice_{}.pth'.format(
+                                                  'model1_iter_{}_{}.pth'.format(
                                                       iter_num, round(best_performance1, 4)))
                     save_best = os.path.join(snapshot_path,
                                              '{}_best_model1.pth'.format(args.model))
@@ -307,21 +311,22 @@ def train(args, snapshot_path):
                 metric_list = metric_list / len(db_val)
                 performance2 = np.mean(metric_list, axis=0)
 
-                writer.add_scalar('info/model2_val_mean_dice', performance2[0], iter_num)
-                writer.add_scalar('info/model2_val_mean_hd95', performance2[1], iter_num)
-                writer.add_scalar('info/model2_val_mean_jc', performance2[2], iter_num)
-                writer.add_scalar('info/model2_val_mean_f1', performance2[3], iter_num)
+                writer.add_scalar('info_val/unsupervised_dice', performance2[0], iter_num)
+                writer.add_scalar('info_val/unsupervised_precision', performance2[1], iter_num)
+                writer.add_scalar('info_val/unsupervised_recall', performance2[2], iter_num)
+                writer.add_scalar('info_val/unsupervised_f1', performance2[3], iter_num)
+                writer.add_scalar('info_val/unsupervised_accuracy', performance2[4], iter_num)
+                writer.add_scalar('info_val/unsupervised_iou', performance2[5], iter_num)
 
                 logging.info(
-                    'MODEL2 iteration %d : mean_dice : %f mean_hd95 : %f mean_jc : %f mean_f1 : %f' % 
-                        (iter_num, performance2[0], performance2[1], performance2[2], performance2[3]))
-  
+                    'MODEL2 iteration %d : dice: %f precision: %f recall: %f f1: %f accuracy: %f iou: %f' % 
+                        (iter_num, performance2[0], performance2[1], performance2[2], performance2[3], performance2[4], performance2[5]))
+          
                 performance2 = performance2[0]
-
                 if performance2 > best_performance2:
                     best_performance2 = performance2
                     save_mode_path = os.path.join(snapshot_path,
-                                                  'model2_iter_{}_dice_{}.pth'.format(
+                                                  'model2_iter_{}_{}.pth'.format(
                                                       iter_num, round(best_performance2, 4)))
                     save_best = os.path.join(snapshot_path,
                                              '{}_best_model2.pth'.format(args.model))
