@@ -53,9 +53,9 @@ parser.add_argument('--ema_decay', type=float,  default=0.99, help='ema_decay')
 parser.add_argument('--consistency_type', type=str,
                     default="mse", help='consistency_type')
 parser.add_argument('--consistency', type=float,
-                    default=9834, help='consistency')
+                    default=200.0, help='consistency')
 parser.add_argument('--consistency_rampup', type=float,
-                    default=255, help='consistency_rampup')
+                    default=2000.0, help='consistency_rampup')
 
 # net stats
 parser.add_argument('--with_stats', type=bool,  default=False, help='net stats')
@@ -168,37 +168,38 @@ def train(args, snapshot_path):
             labeled_volume_batch = volume_batch[:args.labeled_bs]
             labeled_label_batch = label_batch[:args.labeled_bs]
 
-            outputs1  = model_supervised(labeled_volume_batch)
-            outputs_soft1 = torch.softmax(outputs1, dim=1)              
+            outputs1  = model_supervised(volume_batch)
+            outputs_soft1 = torch.softmax(outputs1[:args.labeled_bs], dim=1)              
             
-            outputs2  = model_supervised(labeled_volume_batch)
-            outputs_soft2 = torch.softmax(outputs2, dim=1)            
+            # outputs2  = model_supervised(labeled_volume_batch)
+            # outputs_soft2 = torch.softmax(outputs2, dim=1)            
             
             outputs3 = model_unsupervised(unlabeled_volume_batch)
-            pseudo_labels = torch.softmax(outputs3, dim=1)
+            # pseudo_labels = torch.softmax(outputs3, dim=1)
 
-            unsupervised_labels = model_supervised(unlabeled_volume_batch)
-            unsupervised_pseudo_labels = torch.softmax(unsupervised_labels, dim=1)
+            # unsupervised_labels = model_supervised(unlabeled_volume_batch)
+            # unsupervised_pseudo_labels = torch.softmax(outputs1[args.labeled_bs:], dim=1)
 
             # loss
             consistency_weight = get_current_consistency_weight(iter_num)
-            drop_consistency_weight = 2.0 # get_current_consistency_weight(iter_num)
+            # drop_consistency_weight = 1.0 # get_current_consistency_weight(iter_num)
 
-            loss_mse = mse_loss(outputs1, outputs2)
-            drop_loss = drop_consistency_weight * loss_mse
+            # loss_mse = mse_loss(outputs1, outputs2)
+            # drop_loss = drop_consistency_weight * loss_mse
 
-            loss_ce_1 = ce_loss(outputs1, labeled_label_batch.squeeze())
+            loss_ce_1 = ce_loss(outputs1[:args.labeled_bs], labeled_label_batch.squeeze())
             loss_dc_1 = dc_loss(outputs_soft1, labeled_label_batch)
             model_supervised_loss = 0.5 * (loss_ce_1 + loss_dc_1)
 
-            loss_ce_2 = ce_loss(outputs2, labeled_label_batch.squeeze())
-            loss_dc_2 = dc_loss(outputs_soft2, labeled_label_batch)
-            model_supervised_2_loss = 0.5 * (loss_ce_2 + loss_dc_2)
+            # loss_ce_2 = ce_loss(outputs2, labeled_label_batch.squeeze())
+            # loss_dc_2 = dc_loss(outputs_soft2, labeled_label_batch)
+            # model_supervised_2_loss = 0.5 * (loss_ce_2 + loss_dc_2)
 
-            pseudo_labels_loss = losses.compute_kl_loss(unsupervised_pseudo_labels, pseudo_labels)
+            pseudo_labels_loss = losses.compute_kl_loss(outputs1[args.labeled_bs:], outputs3)
             model_unsupervised_loss = consistency_weight * pseudo_labels_loss
 
-            loss = model_supervised_loss + model_supervised_2_loss + drop_loss + model_unsupervised_loss
+            # loss = model_supervised_loss + model_supervised_2_loss + drop_loss + model_unsupervised_loss
+            loss = model_supervised_loss + model_unsupervised_loss
 
             optimizer1.zero_grad()
             optimizer2.zero_grad()
@@ -219,16 +220,16 @@ def train(args, snapshot_path):
             writer.add_scalar('lr', lr_, iter_num)
             writer.add_scalar(
                 'consistency_weight/consistency_weight', consistency_weight, iter_num)
-            writer.add_scalar(
-                'consistency_weight/drop_consistency_weight', drop_consistency_weight, iter_num)
+            # writer.add_scalar(
+            #     'consistency_weight/drop_consistency_weight', drop_consistency_weight, iter_num)
             
             if args.with_stats:
                 writeNetStats(model_supervised, model_unsupervised, writer, iter_num)
             
-            writer.add_scalar('loss/loss_mse',
-                              loss_mse, iter_num)
-            writer.add_scalar('loss/drop_loss',
-                              drop_loss, iter_num)
+            # writer.add_scalar('loss/loss_mse',
+            #                   loss_mse, iter_num)
+            # writer.add_scalar('loss/drop_loss',
+            #                   drop_loss, iter_num)
             
             writer.add_scalar('loss/loss_ce_1',
                               loss_ce_1, iter_num)            
@@ -237,12 +238,12 @@ def train(args, snapshot_path):
             writer.add_scalar('loss/model_supervised_loss',
                               model_supervised_loss, iter_num)   
                       
-            writer.add_scalar('loss/loss_ce_2',
-                              loss_ce_2, iter_num)
-            writer.add_scalar('loss/loss_dc_2',
-                              loss_dc_2, iter_num)
-            writer.add_scalar('loss/model_supervised_2_loss',
-                              model_supervised_2_loss, iter_num)            
+            # writer.add_scalar('loss/loss_ce_2',
+            #                   loss_ce_2, iter_num)
+            # writer.add_scalar('loss/loss_dc_2',
+            #                   loss_dc_2, iter_num)
+            # writer.add_scalar('loss/model_supervised_2_loss',
+            #                   model_supervised_2_loss, iter_num)            
             
             writer.add_scalar('loss/pseudo_labels_loss',
                               pseudo_labels_loss, iter_num)   
@@ -252,7 +253,8 @@ def train(args, snapshot_path):
             writer.add_scalar('loss/loss',
                               loss.item(), iter_num) 
             
-            logging.info('iter %d : supervised %f supervised_2 %f drop %f unsupervised %f' % (iter_num, model_supervised_loss, model_supervised_2_loss, drop_loss, model_unsupervised_loss))
+            # logging.info('iter %d : supervised %f supervised_2 %f drop %f unsupervised %f' % (iter_num, model_supervised_loss, model_supervised_2_loss, drop_loss, model_unsupervised_loss))
+            logging.info('iter %d : supervised %f unsupervised %f' % (iter_num, model_supervised_loss, model_unsupervised_loss))
 
             if iter_num % 100 == 0:
                 image = sampled_batch['oryginal'][0, 2:4, :, :]
@@ -261,10 +263,10 @@ def train(args, snapshot_path):
                     outputs1, dim=1), dim=1, keepdim=True)
                 writer.add_image('train/model_supervised_Prediction',
                                  outputs[0, ...] * 50, iter_num)
-                outputs = torch.argmax(torch.softmax(
-                    outputs2, dim=1), dim=1, keepdim=True)
-                writer.add_image('train/model_unsupervised_Prediction',
-                                 outputs[0, ...] * 50, iter_num)
+                # outputs = torch.argmax(torch.softmax(
+                #     outputs2, dim=1), dim=1, keepdim=True)
+                # writer.add_image('train/model_unsupervised_Prediction',
+                #                  outputs[0, ...] * 50, iter_num)
                 labs = label_batch[0, ...] * 50
                 writer.add_image('train/GroundTruth', labs, iter_num)
 
@@ -290,7 +292,7 @@ def train(args, snapshot_path):
                     'model_supervised iteration %d : dice: %f precision: %f recall: %f f1: %f accuracy: %f iou: %f' % 
                         (iter_num, performance1[0], performance1[1], performance1[2], performance1[3], performance1[4], performance1[5]))
   
-                performance1_mean = performance1[0]
+                performance1_mean = performance1[3]
 
                 if performance1_mean > best_performance1:
                     best_performance1 = performance1_mean
@@ -325,7 +327,7 @@ def train(args, snapshot_path):
                     'model_unsupervised iteration %d : dice: %f precision: %f recall: %f f1: %f accuracy: %f iou: %f' % 
                         (iter_num, performance2[0], performance2[1], performance2[2], performance2[3], performance2[4], performance2[5]))
                  
-                performance2_mean = performance2[0]
+                performance2_mean = performance2[3]
 
                 if performance2_mean > best_performance2:
                     best_performance2 = performance2_mean

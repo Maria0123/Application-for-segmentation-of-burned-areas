@@ -1,0 +1,47 @@
+Best value: 0.6376260129755706, Best params: {'consistency': 18538, 'consistency_rampup': 4, 'drop_consistency_weight_optim': 1}
+Best value: 0.6984618179840403, Best params: {'consistency': 1940, 'consistency_rampup': 507, 'drop_consistency_weight_optim': 778}
+Best value: 0.6984618179840403, Best params: {'consistency': 1940, 'consistency_rampup': 507, 'drop_consistency_weight_optim': 778}
+Best value: 0.7239043510750679, Best params: {'consistency': 15799, 'consistency_rampup': 139, 'drop_consistency_weight_optim': 77}
+Best value: 0.757653048468593, Best params: {'consistency': 9555, 'consistency_rampup': 140, 'drop_consistency_weight_optim': 1}
+Best value: 0.757653048468593, Best params: {'consistency': 9555, 'consistency_rampup': 140, 'drop_consistency_weight_optim': 1}
+Best value: 0.757653048468593, Best params: {'consistency': 9555, 'consistency_rampup': 140, 'drop_consistency_weight_optim': 1}
+Best value: 0.757653048468593, Best params: {'consistency': 9555, 'consistency_rampup': 140, 'drop_consistency_weight_optim': 1}
+Best value: 0.757653048468593, Best params: {'consistency': 9555, 'consistency_rampup': 140, 'drop_consistency_weight_optim': 1}
+Best value: 0.757653048468593, Best params: {'consistency': 9555, 'consistency_rampup': 140, 'drop_consistency_weight_optim': 1}
+Best value: 0.757653048468593, Best params: {'consistency': 9555, 'consistency_rampup': 140, 'drop_consistency_weight_optim': 1}
+Best value: 0.757653048468593, Best params: {'consistency': 9555, 'consistency_rampup': 140, 'drop_consistency_weight_optim': 1}
+Best value: 0.757653048468593, Best params: {'consistency': 9555, 'consistency_rampup': 140, 'drop_consistency_weight_optim': 1}
+Best value: 0.757653048468593, Best params: {'consistency': 9555, 'consistency_rampup': 140, 'drop_consistency_weight_optim': 1}
+Best value: 0.757653048468593, Best params: {'consistency': 9555, 'consistency_rampup': 140, 'drop_consistency_weight_optim': 1}
+Best value: 0.757653048468593, Best params: {'consistency': 9555, 'consistency_rampup': 140, 'drop_consistency_weight_optim': 1}
+Best value: 0.757653048468593, Best params: {'consistency': 9555, 'consistency_rampup': 140, 'drop_consistency_weight_optim': 1}
+Best value: 0.757653048468593, Best params: {'consistency': 9555, 'consistency_rampup': 140, 'drop_consistency_weight_optim': 1}
+Best value: 0.757653048468593, Best params: {'consistency': 9555, 'consistency_rampup': 140, 'drop_consistency_weight_optim': 1}
+Best value: 0.757653048468593, Best params: {'consistency': 9555, 'consistency_rampup': 140, 'drop_consistency_weight_optim': 1}
+Best value: 0.757653048468593, Best params: {'consistency': 9555, 'consistency_rampup': 140, 'drop_consistency_weight_optim': 1}
+Best value: 0.757653048468593, Best params: {'consistency': 9555, 'consistency_rampup': 140, 'drop_consistency_weight_optim': 1}
+Best value: 0.757653048468593, Best params: {'consistency': 9555, 'consistency_rampup': 140, 'drop_consistency_weight_optim': 1}
+Best value: 0.757653048468593, Best params: {'consistency': 9555, 'consistency_rampup': 140, 'drop_consistency_weight_optim': 1}
+Best value: 0.757653048468593, Best params: {'consistency': 9555, 'consistency_rampup': 140, 'drop_consistency_weight_optim': 1}
+Best value: 0.757653048468593, Best params: {'consistency': 9555, 'consistency_rampup': 140, 'drop_consistency_weight_optim': 1}
+Best value: 0.757653048468593, Best params: {'consistency': 9555, 'consistency_rampup': 140, 'drop_consistency_weight_optim': 1}
+Best value: 0.757653048468593, Best params: {'consistency': 9555, 'consistency_rampup': 140, 'drop_consistency_weight_optim': 1}
+Best value: 0.757653048468593, Best params: {'consistency': 9555, 'consistency_rampup': 140, 'drop_consistency_weight_optim': 1}
+Best value: 0.757653048468593, Best params: {'consistency': 9555, 'consistency_rampup': 140, 'drop_consistency_weight_optim': 1}
+Best value: 0.757653048468593, Best params: {'consistency': 9555, 'consistency_rampup': 140, 'drop_consistency_weight_optim': 1}
+Best value: 0.757653048468593, Best params: {'consistency': 9555, 'consistency_rampup': 140, 'drop_consistency_weight_optim': 1}
+Best value: 0.757653048468593, Best params: {'consistency': 9555, 'consistency_rampup': 140, 'drop_consistency_weight_optim': 1}
+Best value: 0.757653048468593, Best params: {'consistency': 9555, 'consistency_rampup': 140, 'drop_consistency_weight_optim': 1}
+Best value: 0.7695864258423871, Best params: {'consistency': 9834, 'consistency_rampup': 255, 'drop_consistency_weight_optim': 2}
+
+Best is trial 33 with value: 0.7695864258423871.
+Study statistics: 
+  Number of finished trials:  34
+  Number of pruned trials:  22
+  Number of complete trials:  12
+Best trial:
+  Value:  0.7695864258423871
+  Params: 
+    consistency: 9834
+    consistency_rampup: 255
+    drop_consistency_weight_optim: 2

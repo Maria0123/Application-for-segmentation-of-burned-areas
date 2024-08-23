@@ -10,6 +10,7 @@ import torch
 import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.optim as optim
+from torch.optim.lr_scheduler import StepLR
 from tensorboardX import SummaryWriter
 from torch.nn.modules.loss import CrossEntropyLoss, MSELoss
 from torch.utils.data import DataLoader
@@ -35,7 +36,7 @@ parser.add_argument('--batch_size', type=int, default=8,
                     help='batch_size per gpu')
 parser.add_argument('--deterministic', type=int,  default=1,
                     help='whether use deterministic training')
-parser.add_argument('--base_lr', type=float,  default=0.001,
+parser.add_argument('--base_lr', type=float,  default=0.01,
                     help='segmentation network learning rate')
 parser.add_argument('--patch_size', type=list,  default=[128, 128],
                     help='patch size of network input')
@@ -53,9 +54,9 @@ parser.add_argument('--ema_decay', type=float,  default=0.99, help='ema_decay')
 parser.add_argument('--consistency_type', type=str,
                     default="mse", help='consistency_type')
 parser.add_argument('--consistency', type=float,
-                    default=9834, help='consistency')
+                    default=4.0, help='consistency')
 parser.add_argument('--consistency_rampup', type=float,
-                    default=255, help='consistency_rampup')
+                    default=200.0, help='consistency_rampup')
 
 # net stats
 parser.add_argument('--with_stats', type=bool,  default=False, help='net stats')
@@ -87,10 +88,14 @@ def patients_to_slices(dataset, patiens_num):
 
 def get_current_consistency_weight(epoch):
     # Consistency ramp-up from https://arxiv.org/abs/1610.02242
+    consistency = 12
+    consistency_rampup = 9962
     return args.consistency * ramps.sigmoid_rampup(epoch, args.consistency_rampup)
 
 def train(args, snapshot_path):
-    base_lr = args.base_lr
+    # base_lr = args.base_lr
+    base_lr1 = 0.0004096957426498245
+    base_lr2 = 0.009911906745462263
     num_classes = args.num_classes
     batch_size = args.batch_size
     max_iterations = args.max_iterations
@@ -139,12 +144,12 @@ def train(args, snapshot_path):
     valloader = DataLoader(db_val, batch_size=1, shuffle=False,
                            num_workers=0)
 
-    optimizer1 = optim.AdamW(model_supervised.parameters(), lr=base_lr, weight_decay=0.01)
-    optimizer2 = optim.AdamW(model_unsupervised.parameters(), lr=base_lr, weight_decay=0.01)
+    optimizer1 = optim.Adam(model_supervised.parameters(), lr=base_lr1, weight_decay=0.01)
+    optimizer2 = optim.Adam(model_unsupervised.parameters(), lr=base_lr2, weight_decay=0.01)
 
     ce_loss = CrossEntropyLoss()
-    mse_loss = MSELoss()
-    dc_loss = losses.DiceLoss(num_classes)
+    mse_loss = nn.L1Loss() # MSELoss()
+    # dc_loss = losses.DiceLoss(num_classes)
 
     writer = SummaryWriter(snapshot_path + '/log')
     logging.info("{} iterations per epoch".format(len(trainloader)))
@@ -182,18 +187,20 @@ def train(args, snapshot_path):
 
             # loss
             consistency_weight = get_current_consistency_weight(iter_num)
-            drop_consistency_weight = 2.0 # get_current_consistency_weight(iter_num)
+            drop_consistency_weight = 1.0 # get_current_consistency_weight(iter_num)
 
             loss_mse = mse_loss(outputs1, outputs2)
             drop_loss = drop_consistency_weight * loss_mse
 
             loss_ce_1 = ce_loss(outputs1, labeled_label_batch.squeeze())
-            loss_dc_1 = dc_loss(outputs_soft1, labeled_label_batch)
-            model_supervised_loss = 0.5 * (loss_ce_1 + loss_dc_1)
+            # loss_dc_1 = dc_loss(outputs_soft1, labeled_label_batch)
+            # model_supervised_loss = 0.5 * (loss_ce_1 + loss_dc_1)
+            model_supervised_loss = loss_ce_1
 
             loss_ce_2 = ce_loss(outputs2, labeled_label_batch.squeeze())
-            loss_dc_2 = dc_loss(outputs_soft2, labeled_label_batch)
-            model_supervised_2_loss = 0.5 * (loss_ce_2 + loss_dc_2)
+            # loss_dc_2 = dc_loss(outputs_soft2, labeled_label_batch)
+            # model_supervised_2_loss = 0.5 * (loss_ce_2 + loss_dc_2)
+            model_supervised_2_loss = loss_ce_2
 
             pseudo_labels_loss = losses.compute_kl_loss(unsupervised_pseudo_labels, pseudo_labels)
             model_unsupervised_loss = consistency_weight * pseudo_labels_loss
@@ -210,13 +217,17 @@ def train(args, snapshot_path):
 
             iter_num = iter_num + 1
 
-            lr_ = base_lr * (1.0 - iter_num / max_iterations) ** 0.9
+            lr_1 = base_lr1 * (1.0 - iter_num / max_iterations) ** 0.9
             for param_group in optimizer1.param_groups:
-                param_group['lr'] = lr_
-            for param_group in optimizer2.param_groups:
-                param_group['lr'] = lr_
+                param_group['lr'] = lr_1
 
-            writer.add_scalar('lr', lr_, iter_num)
+            lr_2 = base_lr2 * (1.0 - iter_num / max_iterations) ** 0.9
+            for param_group in optimizer2.param_groups:
+                param_group['lr'] = lr_2
+
+            writer.add_scalar('lr_1', lr_1, iter_num)
+            writer.add_scalar('lr_2', lr_2, iter_num)
+
             writer.add_scalar(
                 'consistency_weight/consistency_weight', consistency_weight, iter_num)
             writer.add_scalar(
@@ -232,15 +243,15 @@ def train(args, snapshot_path):
             
             writer.add_scalar('loss/loss_ce_1',
                               loss_ce_1, iter_num)            
-            writer.add_scalar('loss/loss_dc_1',
-                              loss_dc_1, iter_num)   
+            # writer.add_scalar('loss/loss_dc_1',
+            #                   loss_dc_1, iter_num)   
             writer.add_scalar('loss/model_supervised_loss',
                               model_supervised_loss, iter_num)   
                       
             writer.add_scalar('loss/loss_ce_2',
                               loss_ce_2, iter_num)
-            writer.add_scalar('loss/loss_dc_2',
-                              loss_dc_2, iter_num)
+            # writer.add_scalar('loss/loss_dc_2',
+            #                   loss_dc_2, iter_num)
             writer.add_scalar('loss/model_supervised_2_loss',
                               model_supervised_2_loss, iter_num)            
             
@@ -290,7 +301,7 @@ def train(args, snapshot_path):
                     'model_supervised iteration %d : dice: %f precision: %f recall: %f f1: %f accuracy: %f iou: %f' % 
                         (iter_num, performance1[0], performance1[1], performance1[2], performance1[3], performance1[4], performance1[5]))
   
-                performance1_mean = performance1[0]
+                performance1_mean = performance1[3]
 
                 if performance1_mean > best_performance1:
                     best_performance1 = performance1_mean
@@ -325,7 +336,7 @@ def train(args, snapshot_path):
                     'model_unsupervised iteration %d : dice: %f precision: %f recall: %f f1: %f accuracy: %f iou: %f' % 
                         (iter_num, performance2[0], performance2[1], performance2[2], performance2[3], performance2[4], performance2[5]))
                  
-                performance2_mean = performance2[0]
+                performance2_mean = performance2[3]
 
                 if performance2_mean > best_performance2:
                     best_performance2 = performance2_mean

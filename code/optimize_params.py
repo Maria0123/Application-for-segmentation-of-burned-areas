@@ -5,11 +5,15 @@ import random
 import shutil
 import sys
 
+import optuna
+from optuna.trial import TrialState
+
 import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.optim as optim
+from torch.optim.lr_scheduler import StepLR
 from tensorboardX import SummaryWriter
 from torch.nn.modules.loss import CrossEntropyLoss, MSELoss
 from torch.utils.data import DataLoader
@@ -30,12 +34,12 @@ parser.add_argument('--exp', type=str,
 parser.add_argument('--model', type=str,
                     default='unet', help='model_name')
 parser.add_argument('--max_iterations', type=int,
-                    default=30000, help='maximum epoch number to train')
+                    default=20000, help='maximum epoch number to train')
 parser.add_argument('--batch_size', type=int, default=8,
                     help='batch_size per gpu')
 parser.add_argument('--deterministic', type=int,  default=1,
                     help='whether use deterministic training')
-parser.add_argument('--base_lr', type=float,  default=0.001,
+parser.add_argument('--base_lr', type=float,  default=0.01,
                     help='segmentation network learning rate')
 parser.add_argument('--patch_size', type=list,  default=[128, 128],
                     help='patch size of network input')
@@ -53,9 +57,9 @@ parser.add_argument('--ema_decay', type=float,  default=0.99, help='ema_decay')
 parser.add_argument('--consistency_type', type=str,
                     default="mse", help='consistency_type')
 parser.add_argument('--consistency', type=float,
-                    default=9834, help='consistency')
+                    default=4.0, help='consistency')
 parser.add_argument('--consistency_rampup', type=float,
-                    default=255, help='consistency_rampup')
+                    default=200.0, help='consistency_rampup')
 
 # net stats
 parser.add_argument('--with_stats', type=bool,  default=False, help='net stats')
@@ -85,16 +89,19 @@ def patients_to_slices(dataset, patiens_num):
     return ref_dict[str(patiens_num)]
 
 
-def get_current_consistency_weight(epoch):
+def get_current_consistency_weight(epoch, consistency, consistency_rampup):
     # Consistency ramp-up from https://arxiv.org/abs/1610.02242
-    return args.consistency * ramps.sigmoid_rampup(epoch, args.consistency_rampup)
+    return consistency * ramps.sigmoid_rampup(epoch, consistency_rampup)
 
-def train(args, snapshot_path):
+def objective(trial):
     base_lr = args.base_lr
     num_classes = args.num_classes
     batch_size = args.batch_size
     max_iterations = args.max_iterations
     chanels = get_chanels()
+    consistency = trial.suggest_int("consistency", 100, 12000, log=True)
+    consistency_rampup = trial.suggest_int("consistency_rampup", 1, 10000, log=True)
+    drop_consistency_weight_optim = trial.suggest_int("drop_consistency_weight_optim", 1, 1000, log=True)
 
     def create_model(ema=False, with_stats=False):
         model = net_factory(net_type=args.model, in_chns=chanels,
@@ -146,7 +153,6 @@ def train(args, snapshot_path):
     mse_loss = MSELoss()
     dc_loss = losses.DiceLoss(num_classes)
 
-    writer = SummaryWriter(snapshot_path + '/log')
     logging.info("{} iterations per epoch".format(len(trainloader)))
 
     iter_num = 0
@@ -156,7 +162,6 @@ def train(args, snapshot_path):
     iterator = tqdm(range(max_epoch), ncols=70)
     for epoch_num in iterator:
         for i_batch, sampled_batch in enumerate(trainloader):
-
             volume_batch, label_batch = sampled_batch['image'], sampled_batch['label']
             if torch.backends.mps.is_available():
                 volume_batch, label_batch = volume_batch.to(torch.float32).to("mps"), label_batch.to(torch.float32).to("mps")
@@ -181,8 +186,8 @@ def train(args, snapshot_path):
             unsupervised_pseudo_labels = torch.softmax(unsupervised_labels, dim=1)
 
             # loss
-            consistency_weight = get_current_consistency_weight(iter_num)
-            drop_consistency_weight = 2.0 # get_current_consistency_weight(iter_num)
+            consistency_weight = get_current_consistency_weight(iter_num, consistency, consistency_rampup)
+            drop_consistency_weight = drop_consistency_weight_optim #1.0 # get_current_consistency_weight(iter_num)
 
             loss_mse = mse_loss(outputs1, outputs2)
             drop_loss = drop_consistency_weight * loss_mse
@@ -216,59 +221,61 @@ def train(args, snapshot_path):
             for param_group in optimizer2.param_groups:
                 param_group['lr'] = lr_
 
-            writer.add_scalar('lr', lr_, iter_num)
-            writer.add_scalar(
-                'consistency_weight/consistency_weight', consistency_weight, iter_num)
-            writer.add_scalar(
-                'consistency_weight/drop_consistency_weight', drop_consistency_weight, iter_num)
+            # writer.add_scalar('lr1', lr_1, iter_num)
+            # writer.add_scalar('lr2', lr_2, iter_num)
+
+            # writer.add_scalar(
+            #     'consistency_weight/consistency_weight', consistency_weight, iter_num)
+            # writer.add_scalar(
+            #     'consistency_weight/drop_consistency_weight', drop_consistency_weight, iter_num)
             
-            if args.with_stats:
-                writeNetStats(model_supervised, model_unsupervised, writer, iter_num)
+            # if args.with_stats:
+            #     writeNetStats(model_supervised, model_unsupervised, writer, iter_num)
             
-            writer.add_scalar('loss/loss_mse',
-                              loss_mse, iter_num)
-            writer.add_scalar('loss/drop_loss',
-                              drop_loss, iter_num)
+            # writer.add_scalar('loss/loss_mse',
+            #                   loss_mse, iter_num)
+            # writer.add_scalar('loss/drop_loss',
+            #                   drop_loss, iter_num)
             
-            writer.add_scalar('loss/loss_ce_1',
-                              loss_ce_1, iter_num)            
-            writer.add_scalar('loss/loss_dc_1',
-                              loss_dc_1, iter_num)   
-            writer.add_scalar('loss/model_supervised_loss',
-                              model_supervised_loss, iter_num)   
+            # writer.add_scalar('loss/loss_ce_1',
+            #                   loss_ce_1, iter_num)            
+            # writer.add_scalar('loss/loss_dc_1',
+            #                   loss_dc_1, iter_num)   
+            # writer.add_scalar('loss/model_supervised_loss',
+            #                   model_supervised_loss, iter_num)   
                       
-            writer.add_scalar('loss/loss_ce_2',
-                              loss_ce_2, iter_num)
-            writer.add_scalar('loss/loss_dc_2',
-                              loss_dc_2, iter_num)
-            writer.add_scalar('loss/model_supervised_2_loss',
-                              model_supervised_2_loss, iter_num)            
+            # writer.add_scalar('loss/loss_ce_2',
+            #                   loss_ce_2, iter_num)
+            # writer.add_scalar('loss/loss_dc_2',
+            #                   loss_dc_2, iter_num)
+            # writer.add_scalar('loss/model_supervised_2_loss',
+            #                   model_supervised_2_loss, iter_num)            
             
-            writer.add_scalar('loss/pseudo_labels_loss',
-                              pseudo_labels_loss, iter_num)   
-            writer.add_scalar('loss/model_unsupervised_loss',
-                              model_unsupervised_loss, iter_num) 
+            # writer.add_scalar('loss/pseudo_labels_loss',
+            #                   pseudo_labels_loss, iter_num)   
+            # writer.add_scalar('loss/model_unsupervised_loss',
+            #                   model_unsupervised_loss, iter_num) 
                                     
-            writer.add_scalar('loss/loss',
-                              loss.item(), iter_num) 
+            # writer.add_scalar('loss/loss',
+            #                   loss.item(), iter_num) 
             
             logging.info('iter %d : supervised %f supervised_2 %f drop %f unsupervised %f' % (iter_num, model_supervised_loss, model_supervised_2_loss, drop_loss, model_unsupervised_loss))
 
-            if iter_num % 100 == 0:
-                image = sampled_batch['oryginal'][0, 2:4, :, :]
-                writer.add_image('train/Image', image, iter_num)
-                outputs = torch.argmax(torch.softmax(
-                    outputs1, dim=1), dim=1, keepdim=True)
-                writer.add_image('train/model_supervised_Prediction',
-                                 outputs[0, ...] * 50, iter_num)
-                outputs = torch.argmax(torch.softmax(
-                    outputs2, dim=1), dim=1, keepdim=True)
-                writer.add_image('train/model_unsupervised_Prediction',
-                                 outputs[0, ...] * 50, iter_num)
-                labs = label_batch[0, ...] * 50
-                writer.add_image('train/GroundTruth', labs, iter_num)
+            # if iter_num % 100 == 0:
+            #     image = sampled_batch['oryginal'][0, 2:4, :, :]
+            #     writer.add_image('train/Image', image, iter_num)
+            #     outputs = torch.argmax(torch.softmax(
+            #         outputs1, dim=1), dim=1, keepdim=True)
+            #     writer.add_image('train/model_supervised_Prediction',
+            #                      outputs[0, ...] * 50, iter_num)
+            #     outputs = torch.argmax(torch.softmax(
+            #         outputs2, dim=1), dim=1, keepdim=True)
+            #     writer.add_image('train/model_unsupervised_Prediction',
+            #                      outputs[0, ...] * 50, iter_num)
+            #     labs = label_batch[0, ...] * 50
+            #     writer.add_image('train/GroundTruth', labs, iter_num)
 
-            if iter_num > 0 and iter_num % 300 == 0:
+            if iter_num > 0 and iter_num % 200 == 0:
                 model_supervised.eval()
                 metric_list = 0.0
                 for i_batch, sampled_batch in enumerate(valloader):
@@ -279,28 +286,29 @@ def train(args, snapshot_path):
                 metric_list = metric_list / len(db_val)
                 performance1 = np.mean(metric_list, axis=0)
 
-                writer.add_scalar('metric_val/supervised_dice', performance1[0], iter_num)
-                writer.add_scalar('metric_val/supervised_precision', performance1[1], iter_num)
-                writer.add_scalar('metric_val/supervised_recall', performance1[2], iter_num)
-                writer.add_scalar('metric_val/supervised_f1', performance1[3], iter_num)
-                writer.add_scalar('metric_val/supervised_accuracy', performance1[4], iter_num)
-                writer.add_scalar('metric_val/supervised_iou', performance1[5], iter_num)
+                # writer.add_scalar('metric_val/supervised_dice', performance1[0], iter_num)
+                # writer.add_scalar('metric_val/supervised_precision', performance1[1], iter_num)
+                # writer.add_scalar('metric_val/supervised_recall', performance1[2], iter_num)
+                # writer.add_scalar('metric_val/supervised_f1', performance1[3], iter_num)
+                # writer.add_scalar('metric_val/supervised_accuracy', performance1[4], iter_num)
+                # writer.add_scalar('metric_val/supervised_iou', performance1[5], iter_num)
 
                 logging.info(
                     'model_supervised iteration %d : dice: %f precision: %f recall: %f f1: %f accuracy: %f iou: %f' % 
                         (iter_num, performance1[0], performance1[1], performance1[2], performance1[3], performance1[4], performance1[5]))
   
-                performance1_mean = performance1[0]
+                performance1_mean = performance1[3]
 
                 if performance1_mean > best_performance1:
                     best_performance1 = performance1_mean
-                    save_mode_path = os.path.join(snapshot_path,
-                                                  'model_supervised_{}_{}_{}.pth'.format(
-                                                      iter_num, round(performance1[0], 4), round(performance1_mean, 4)))
-                    save_best = os.path.join(snapshot_path,
-                                             '{}_best_model_supervised.pth'.format(args.model))
-                    torch.save(model_supervised.state_dict(), save_mode_path)
-                    torch.save(model_supervised.state_dict(), save_best)
+                    optim_val = performance1
+                    # save_mode_path = os.path.join(snapshot_path,
+                    #                               'model_supervised_{}_{}_{}.pth'.format(
+                    #                                   iter_num, round(performance1[0], 4), round(performance1_mean, 4)))
+                    # save_best = os.path.join(snapshot_path,
+                    #                          '{}_best_model_supervised.pth'.format(args.model))
+                    # torch.save(model_supervised.state_dict(), save_mode_path)
+                    # torch.save(model_supervised.state_dict(), save_best)
 
                 model_supervised.train()
 
@@ -314,49 +322,63 @@ def train(args, snapshot_path):
                 metric_list = metric_list / len(db_val)
                 performance2 = np.mean(metric_list, axis=0) 
 
-                writer.add_scalar('info_val/unsupervised_dice', performance2[0], iter_num)
-                writer.add_scalar('info_val/unsupervised_precision', performance2[1], iter_num)
-                writer.add_scalar('info_val/unsupervised_recall', performance2[2], iter_num)
-                writer.add_scalar('info_val/unsupervised_f1', performance2[3], iter_num)
-                writer.add_scalar('info_val/unsupervised_accuracy', performance2[4], iter_num)
-                writer.add_scalar('info_val/unsupervised_iou', performance2[5], iter_num)
+                # writer.add_scalar('info_val/unsupervised_dice', performance2[0], iter_num)
+                # writer.add_scalar('info_val/unsupervised_precision', performance2[1], iter_num)
+                # writer.add_scalar('info_val/unsupervised_recall', performance2[2], iter_num)
+                # writer.add_scalar('info_val/unsupervised_f1', performance2[3], iter_num)
+                # writer.add_scalar('info_val/unsupervised_accuracy', performance2[4], iter_num)
+                # writer.add_scalar('info_val/unsupervised_iou', performance2[5], iter_num)
 
                 logging.info(
                     'model_unsupervised iteration %d : dice: %f precision: %f recall: %f f1: %f accuracy: %f iou: %f' % 
                         (iter_num, performance2[0], performance2[1], performance2[2], performance2[3], performance2[4], performance2[5]))
                  
-                performance2_mean = performance2[0]
+                performance2_mean = performance2[3]
 
                 if performance2_mean > best_performance2:
                     best_performance2 = performance2_mean
-                    save_mode_path = os.path.join(snapshot_path,
-                                                  'model_unsupervised_{}_{}_{}.pth'.format(
-                                                      iter_num, round(performance2[0], 4), round(best_performance2, 4)))
-                    save_best = os.path.join(snapshot_path,
-                                             '{}_best_model_unsupervised.pth'.format(args.model))
-                    torch.save(model_unsupervised.state_dict(), save_mode_path)
-                    torch.save(model_unsupervised.state_dict(), save_best)
+                    # save_mode_path = os.path.join(snapshot_path,
+                    #                               'model_unsupervised_{}_{}_{}.pth'.format(
+                    #                                   iter_num, round(performance2[0], 4), round(best_performance2, 4)))
+                    # save_best = os.path.join(snapshot_path,
+                    #                          '{}_best_model_unsupervised.pth'.format(args.model))
+                    # torch.save(model_unsupervised.state_dict(), save_mode_path)
+                    # torch.save(model_unsupervised.state_dict(), save_best)
 
                 model_unsupervised.train()
 
-            if iter_num % 3000 == 0:
-                save_mode_path = os.path.join(
-                    snapshot_path, 'model_supervised_' + str(iter_num) + '.pth')
-                torch.save(model_supervised.state_dict(), save_mode_path)
-                logging.info("save model_supervised to {}".format(save_mode_path))
+                trial.report(performance1[3], iter_num)
 
-                save_mode_path = os.path.join(
-                    snapshot_path, 'model_unsupervised_' + str(iter_num) + '.pth')
-                torch.save(model_unsupervised.state_dict(), save_mode_path)
-                logging.info("save model_unsupervised to {}".format(save_mode_path))
+                if trial.should_prune():
+                    raise optuna.exceptions.TrialPruned()
+                
+            # if iter_num % 3000 == 0:
+            #     save_mode_path = os.path.join(
+            #         snapshot_path, 'model_supervised_' + str(iter_num) + '.pth')
+            #     torch.save(model_supervised.state_dict(), save_mode_path)
+            #     logging.info("save model_supervised to {}".format(save_mode_path))
+
+            #     save_mode_path = os.path.join(
+            #         snapshot_path, 'model_unsupervised_' + str(iter_num) + '.pth')
+            #     torch.save(model_unsupervised.state_dict(), save_mode_path)
+            #     logging.info("save model_unsupervised to {}".format(save_mode_path))
 
             if iter_num >= max_iterations:
                 break
         if iter_num >= max_iterations:
             iterator.close()
             break
-    writer.close()
 
+    print(f'Trial {trial.number} - {performance1[3]}f1 {performance1[5]}iou')
+    return performance1[3]
+
+def print_best_callback(study, trial):
+    f = open("output2.txt", "a")
+
+    f.write(f"Best value: {study.best_value}, Best params: {study.best_trial.params}")
+
+    f.write("\n")
+    f.close()
 
 if __name__ == "__main__":
     if not args.deterministic:
@@ -371,17 +393,36 @@ if __name__ == "__main__":
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
 
-    snapshot_path = "../model/{}/{}".format(
-        args.exp, args.model)
-    if not os.path.exists(snapshot_path):
-        os.makedirs(snapshot_path)
-    if os.path.exists(snapshot_path + '/code'):
-        shutil.rmtree(snapshot_path + '/code')
-    shutil.copytree('.', snapshot_path + '/code',
-                    shutil.ignore_patterns(['.git', '__pycache__']))
+    # snapshot_path = "../model/{}/{}".format(
+    #     args.exp, args.model)
+    # if not os.path.exists(snapshot_path):
+    #     os.makedirs(snapshot_path)
+    # if os.path.exists(snapshot_path + '/code'):
+    #     shutil.rmtree(snapshot_path + '/code')
+    # shutil.copytree('.', snapshot_path + '/code',
+    #                 shutil.ignore_patterns(['.git', '__pycache__']))
 
-    logging.basicConfig(filename=snapshot_path+"/log.txt", level=logging.INFO,
-                        format='[%(asctime)s.%(msecs)03d] %(message)s', datefmt='%H:%M:%S')
-    logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
-    logging.info(str(args))
-    train(args, snapshot_path)
+    # logging.basicConfig(filename=snapshot_path+"/log.txt", level=logging.INFO,
+    #                     format='[%(asctime)s.%(msecs)03d] %(message)s', datefmt='%H:%M:%S')
+    # logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
+    # logging.info(str(args))
+
+    study = optuna.create_study(direction="maximize", pruner=optuna.pruners.MedianPruner())
+    study.optimize(objective, n_trials=200, timeout=60000, callbacks=[print_best_callback])
+
+    pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])
+    complete_trials = study.get_trials(deepcopy=False, states=[TrialState.COMPLETE])
+
+    print("Study statistics: ")
+    print("  Number of finished trials: ", len(study.trials))
+    print("  Number of pruned trials: ", len(pruned_trials))
+    print("  Number of complete trials: ", len(complete_trials))
+
+    print("Best trial:")
+    trial = study.best_trial
+
+    print("  Value: ", trial.value)
+
+    print("  Params: ")
+    for key, value in trial.params.items():
+        print("    {}: {}".format(key, value))
