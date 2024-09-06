@@ -20,13 +20,13 @@ from dataloaders.CaBuAr import CaBuAr
 from dataloaders.dataset import TwoStreamBatchSampler
 from networks.net_factory import net_factory
 from utils import losses, ramps
-from val_2D import test_single_volume_cbr
+from val import test_single_volume_cbr
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--root_path', type=str,
-                    default='../data/CaBuArRaw', help='Name of Experiment')
+                    default='../data/CaBuAr', help='Name of Experiment')
 parser.add_argument('--exp', type=str,
-                    default='CaBuArRaw/MT', help='experiment_name')
+                    default='CaBuAr/MT', help='experiment_name')
 parser.add_argument('--model', type=str,
                     default='unet', help='model_name')
 parser.add_argument('--max_iterations', type=int,
@@ -75,8 +75,8 @@ def get_chanels():
         
 def patients_to_slices(dataset, patiens_num):
     ref_dict = None
-    if "CaBuArRaw" in dataset:
-        ref_dict = {"2": 20, "4": 40, "6": 60, "7": 70, "8": 80, "10": 100}
+    if "CaBuAr" in dataset:
+        ref_dict = {"16": 35, "30": 70, "45": 94}
     else:
         print("Error")
     return ref_dict[str(patiens_num)]

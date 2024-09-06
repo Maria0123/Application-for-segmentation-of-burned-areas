@@ -20,13 +20,13 @@ from dataloaders.CaBuAr import CaBuAr
 from dataloaders.dataset import TwoStreamBatchSampler
 from networks.net_factory import net_factory
 from utils import ramps
-from val_2D import test_single_volume_cbr
+from val import test_single_volume_cbr
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--root_path', type=str,
-                    default='../data/CaBuArRaw', help='Name of Experiment')
+                    default='../data/CaBuAr', help='Name of Experiment')
 parser.add_argument('--exp', type=str,
-                    default='CaBuArRaw/Entropy_Minimization', help='experiment_name')
+                    default='CaBuAr/Entropy_Minimization', help='experiment_name')
 parser.add_argument('--model', type=str,
                     default='unet', help='model_name')
 parser.add_argument('--max_iterations', type=int,

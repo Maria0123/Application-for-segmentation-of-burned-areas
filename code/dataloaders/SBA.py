@@ -1,8 +1,7 @@
 from torch.utils.data import Dataset
 import h5py
 
-
-class CaBuAr(Dataset):
+class SBA(Dataset):
     def __init__(
         self,
         base_dir=None,

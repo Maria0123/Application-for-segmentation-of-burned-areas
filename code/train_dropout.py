@@ -4,7 +4,6 @@ import os
 import random
 import shutil
 import sys
-import time
 
 import numpy as np
 import torch
@@ -12,22 +11,23 @@ import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.optim as optim
 from tensorboardX import SummaryWriter
-from torch.nn.modules.loss import CrossEntropyLoss
+from torch.nn.modules.loss import CrossEntropyLoss, MSELoss
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from dataloaders.SBA import SBA
 from dataloaders.CaBuAr import CaBuAr
 from dataloaders.dataset import TwoStreamBatchSampler
 from networks.net_factory import net_factory
 from utils import losses, ramps
 from utils.stats_writer import writeNetStats
-from val_2D import test_single_volume_cbr
+from val import test_single_volume_cbr
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--root_path', type=str,
-                    default='../data/CaBuArRaw', help='Name of Experiment')
+                    default='../data/CaBuAr', help='Name of Experiment')
 parser.add_argument('--exp', type=str,
-                    default='CaBuArRaw/Regularized_Dropout', help='experiment_name')
+                    default='CaBuAr/Regularized_Dropout', help='experiment_name')
 parser.add_argument('--model', type=str,
                     default='unet', help='model_name')
 parser.add_argument('--max_iterations', type=int,
@@ -47,22 +47,25 @@ parser.add_argument('--num_classes', type=int,  default=2,
 # label and unlabel
 parser.add_argument('--labeled_bs', type=int, default=4,
                     help='labeled_batch_size per gpu')
-parser.add_argument('--labeled_num', type=int, default=7,
+parser.add_argument('--labeled_num', type=int, default=30,
                     help='labeled data')
 # costs
 parser.add_argument('--ema_decay', type=float,  default=0.99, help='ema_decay')
 parser.add_argument('--consistency_type', type=str,
                     default="mse", help='consistency_type')
 parser.add_argument('--consistency', type=float,
-                    default=100.0, help='consistency')
+                    default=119, help='consistency')
 parser.add_argument('--consistency_rampup', type=float,
-                    default=200.0, help='consistency_rampup')
+                    default=250, help='consistency_rampup')
 
 # net stats
-parser.add_argument('--with_stats', type=bool,  default=True, help='net stats')
+parser.add_argument('--with_stats', type=bool,  default=False, help='net stats')
 
 parser.add_argument('--scenario', type=str,  default=None, help='scenario B1, B3, B4, or None')
 parser.add_argument('--random', type=bool,  default=False, help='test on random data')
+
+parser.add_argument('--load_model', type=bool,  default=False, help='load model')
+
 
 args = parser.parse_args()
 
@@ -77,28 +80,12 @@ def get_chanels():
         case _:
             return 12
         
-def kaiming_normal_init_weight(model):
-    for m in model.modules():
-        if isinstance(m, nn.Conv2d):
-            torch.nn.init.kaiming_normal_(m.weight)
-        elif isinstance(m, nn.BatchNorm2d):
-            m.weight.data.fill_(1)
-            m.bias.data.zero_()
-    return model
-
-def xavier_normal_init_weight(model):
-    for m in model.modules():
-        if isinstance(m, nn.Conv2d):
-            torch.nn.init.xavier_normal_(m.weight)
-        elif isinstance(m, nn.BatchNorm2d):
-            m.weight.data.fill_(1)
-            m.bias.data.zero_()
-    return model
-
 def patients_to_slices(dataset, patiens_num):
     ref_dict = None
     if "CaBuAr" in dataset:
-        ref_dict = {"2": 20, "4": 40, "6": 60, "7": 70, "8": 80, "10": 100}
+        ref_dict = {"16": 35, "30": 70, "45": 94}
+    if "SBA" in dataset:
+        ref_dict = {"16": 82, "30": 153, "45": 231}
     else:
         print("Error")
     return ref_dict[str(patiens_num)]
@@ -108,14 +95,6 @@ def get_current_consistency_weight(epoch):
     # Consistency ramp-up from https://arxiv.org/abs/1610.02242
     return args.consistency * ramps.sigmoid_rampup(epoch, args.consistency_rampup)
 
-
-def update_ema_variables(model, ema_model, alpha, global_step):
-    # Use the true average until the exponential average is more correct
-    alpha = min(1 - 1 / (global_step + 1), alpha)
-    for ema_param, param in zip(ema_model.parameters(), model.parameters()):
-        ema_param.data.mul_(alpha).add_(1 - alpha, param.data)
-
-
 def train(args, snapshot_path):
     base_lr = args.base_lr
     num_classes = args.num_classes
@@ -124,7 +103,6 @@ def train(args, snapshot_path):
     chanels = get_chanels()
 
     def create_model(ema=False, with_stats=False):
-        # Network definition
         model = net_factory(net_type=args.model, in_chns=chanels,
                             class_num=num_classes, with_stats = with_stats)
         if ema:
@@ -132,14 +110,18 @@ def train(args, snapshot_path):
                 param.detach_()
         return model
 
-    model1 = create_model(with_stats = args.with_stats)
-    model2 = create_model(with_stats = args.with_stats)
+    model_supervised = create_model(with_stats = args.with_stats)
+    model_unsupervised = create_model(with_stats = args.with_stats)
     
     def worker_init_fn(worker_id):
         random.seed(args.seed + worker_id)
 
-    db_train = CaBuAr(base_dir=args.root_path, split="train", num=None, scenario=args.scenario)
-    db_val = CaBuAr(base_dir=args.root_path, split="val", scenario=args.scenario)
+    if "CaBuAr" in args.root_path:
+        db_train = CaBuAr(base_dir=args.root_path, split="train", num=None, scenario=args.scenario)
+        db_val = CaBuAr(base_dir=args.root_path, split="val", scenario=args.scenario)
+    elif "SBA" in args.root_path:
+        db_train = SBA(base_dir=args.root_path, split="train", num=None, scenario=args.scenario)
+        db_val = SBA(base_dir=args.root_path, split="val", scenario=args.scenario)       
 
     total_slices = len(db_train)
     labeled_slice = patients_to_slices(args.root_path, args.labeled_num)
@@ -153,25 +135,26 @@ def train(args, snapshot_path):
         unlabeled_idxs = list(range(labeled_slice, total_slices))
 
     print("Total silices is: {}, labeled slices is: {}, unlabeld slices is: {}".format(
-        total_slices, len(labeled_idxs), len(unlabeled_idxs))) 
-    
+        total_slices, len(labeled_idxs), len(unlabeled_idxs)))    
+
     batch_sampler = TwoStreamBatchSampler(
         labeled_idxs, unlabeled_idxs, batch_size, batch_size-args.labeled_bs)
 
     trainloader = DataLoader(db_train, batch_sampler=batch_sampler,
                              num_workers=0, pin_memory=True, worker_init_fn=worker_init_fn)
 
-    model1.train()
-    model2.train()
+    model_supervised.train()
+    model_unsupervised.train()
 
     valloader = DataLoader(db_val, batch_size=1, shuffle=False,
                            num_workers=0)
 
-    optimizer1 = optim.AdamW(model1.parameters(), lr=base_lr, weight_decay=0.01)
-    optimizer2 = optim.AdamW(model2.parameters(), lr=base_lr, weight_decay=0.01)
-    
+    optimizer1 = optim.AdamW(model_supervised.parameters(), lr=base_lr, weight_decay=0.01)
+    optimizer2 = optim.AdamW(model_unsupervised.parameters(), lr=base_lr, weight_decay=0.01)
+
     ce_loss = CrossEntropyLoss()
-    dc_hd_loss = losses.DiceLoss(num_classes)
+    mse_loss = MSELoss()
+    dc_loss = losses.DiceLoss(num_classes)
 
     writer = SummaryWriter(snapshot_path + '/log')
     logging.info("{} iterations per epoch".format(len(trainloader)))
@@ -190,25 +173,42 @@ def train(args, snapshot_path):
             else:
                 volume_batch, label_batch = volume_batch.cuda(), label_batch.type(torch.LongTensor).cuda()
             
+            unlabeled_volume_batch = volume_batch[args.labeled_bs:]
 
-            outputs1  = model1(volume_batch)
-            outputs_soft1 = torch.softmax(outputs1, dim=1)
+            labeled_volume_batch = volume_batch[:args.labeled_bs]
+            labeled_label_batch = label_batch[:args.labeled_bs]
 
-            outputs2 = model2(volume_batch)
-            outputs_soft2 = torch.softmax(outputs2, dim=1)
+            outputs1  = model_supervised(labeled_volume_batch)
+            outputs_soft1 = torch.softmax(outputs1, dim=1)              
+            
+            outputs2  = model_supervised(labeled_volume_batch)
+            outputs_soft2 = torch.softmax(outputs2, dim=1)            
+            
+            outputs3 = model_unsupervised(unlabeled_volume_batch)
+            pseudo_labels = torch.softmax(outputs3, dim=1)
+
+            unsupervised_labels = model_supervised(unlabeled_volume_batch)
+            unsupervised_pseudo_labels = torch.softmax(unsupervised_labels, dim=1)
+
+            # loss
             consistency_weight = get_current_consistency_weight(iter_num)
+            drop_consistency_weight = 2.0 # get_current_consistency_weight(iter_num)
 
-            loss_ce_1 = ce_loss(outputs1[:args.labeled_bs], label_batch[:args.labeled_bs].squeeze())
-            loss_dc_hd_1 = dc_hd_loss(outputs_soft1[:args.labeled_bs], label_batch[:args.labeled_bs])
-            model1_loss = 0.5 * (loss_ce_1 + loss_dc_hd_1)
+            loss_mse = mse_loss(outputs1, outputs2)
+            drop_loss = drop_consistency_weight * loss_mse
 
-            loss_ce_2 = ce_loss(outputs2[:args.labeled_bs], label_batch[:args.labeled_bs].squeeze())
-            loss_dc_hd_2 = dc_hd_loss(outputs_soft2[:args.labeled_bs], label_batch[:args.labeled_bs])
-            model2_loss = 0.5 * (loss_ce_2 + loss_dc_hd_2)
+            loss_ce_1 = ce_loss(outputs1, labeled_label_batch.squeeze())
+            loss_dc_1 = dc_loss(outputs_soft1, labeled_label_batch)
+            model_supervised_loss = 0.5 * (loss_ce_1 + loss_dc_1)
 
-            r_drop_loss = losses.compute_kl_loss(outputs1[args.labeled_bs:], outputs2[args.labeled_bs:])
+            loss_ce_2 = ce_loss(outputs2, labeled_label_batch.squeeze())
+            loss_dc_2 = dc_loss(outputs_soft2, labeled_label_batch)
+            model_supervised_2_loss = 0.5 * (loss_ce_2 + loss_dc_2)
 
-            loss = model1_loss + model2_loss + consistency_weight * r_drop_loss
+            pseudo_labels_loss = losses.compute_kl_loss(unsupervised_pseudo_labels, pseudo_labels)
+            model_unsupervised_loss = consistency_weight * pseudo_labels_loss
+
+            loss = model_supervised_loss + model_supervised_2_loss + drop_loss + model_unsupervised_loss
 
             optimizer1.zero_grad()
             optimizer2.zero_grad()
@@ -229,49 +229,61 @@ def train(args, snapshot_path):
             writer.add_scalar('lr', lr_, iter_num)
             writer.add_scalar(
                 'consistency_weight/consistency_weight', consistency_weight, iter_num)
+            writer.add_scalar(
+                'consistency_weight/drop_consistency_weight', drop_consistency_weight, iter_num)
             
             if args.with_stats:
-                writeNetStats(model1, model2, writer, iter_num)
+                writeNetStats(model_supervised, model_unsupervised, writer, iter_num)
             
-            writer.add_scalar('loss/model1_loss',
-                              model1_loss, iter_num)
-            writer.add_scalar('loss/model2_loss',
-                              model2_loss, iter_num)
-            writer.add_scalar('loss/r_drop_loss',
-                              r_drop_loss, iter_num)
-            writer.add_scalar('loss/loss_ce_model1',
+            writer.add_scalar('loss/loss_mse',
+                              loss_mse, iter_num)
+            writer.add_scalar('loss/drop_loss',
+                              drop_loss, iter_num)
+            
+            writer.add_scalar('loss/loss_ce_1',
                               loss_ce_1, iter_num)            
-            writer.add_scalar('loss/loss_dc_hd_model1',
-                              loss_dc_hd_1, iter_num)   
-            writer.add_scalar('loss/loss_ce_model2',
-                              loss_ce_2, iter_num)            
-            writer.add_scalar('loss/loss_dc_hd_model2',
-                              loss_dc_hd_2, iter_num) 
-            writer.add_scalar('loss/total_loss',
-                              loss, iter_num) 
+            writer.add_scalar('loss/loss_dc_1',
+                              loss_dc_1, iter_num)   
+            writer.add_scalar('loss/model_supervised_loss',
+                              model_supervised_loss, iter_num)   
+                      
+            writer.add_scalar('loss/loss_ce_2',
+                              loss_ce_2, iter_num)
+            writer.add_scalar('loss/loss_dc_2',
+                              loss_dc_2, iter_num)
+            writer.add_scalar('loss/model_supervised_2_loss',
+                              model_supervised_2_loss, iter_num)            
+            
+            writer.add_scalar('loss/pseudo_labels_loss',
+                              pseudo_labels_loss, iter_num)   
+            writer.add_scalar('loss/model_unsupervised_loss',
+                              model_unsupervised_loss, iter_num) 
                                     
-            logging.info('iteration %d : model1 loss : %f model2 loss : %f r_drop_loss: %f' % (iter_num, model1_loss.item(), model2_loss.item(), r_drop_loss.item()))
+            writer.add_scalar('loss/loss',
+                              loss.item(), iter_num) 
+            
+            logging.info('iter %d : supervised %f supervised_2 %f drop %f unsupervised %f' % (iter_num, model_supervised_loss, model_supervised_2_loss, drop_loss, model_unsupervised_loss))
 
-            if iter_num % 50 == 0:
+            if iter_num % 100 == 0:
                 image = sampled_batch['oryginal'][0, 2:4, :, :]
                 writer.add_image('train/Image', image, iter_num)
                 outputs = torch.argmax(torch.softmax(
                     outputs1, dim=1), dim=1, keepdim=True)
-                writer.add_image('train/model1_Prediction',
+                writer.add_image('train/model_supervised_Prediction',
                                  outputs[0, ...] * 50, iter_num)
                 outputs = torch.argmax(torch.softmax(
                     outputs2, dim=1), dim=1, keepdim=True)
-                writer.add_image('train/model2_Prediction',
+                writer.add_image('train/model_unsupervised_Prediction',
                                  outputs[0, ...] * 50, iter_num)
                 labs = label_batch[0, ...] * 50
                 writer.add_image('train/GroundTruth', labs, iter_num)
 
             if iter_num > 0 and iter_num % 300 == 0:
-                model1.eval()
+                model_supervised.eval()
                 metric_list = 0.0
                 for i_batch, sampled_batch in enumerate(valloader):
                     metric_i = test_single_volume_cbr(
-                        sampled_batch["image"], sampled_batch["label"], model1, classes=num_classes)
+                        sampled_batch["image"], sampled_batch["label"], model_supervised, classes=num_classes)
                     metric_list += np.array(metric_i)
                 
                 metric_list = metric_list / len(db_val)
@@ -285,31 +297,32 @@ def train(args, snapshot_path):
                 writer.add_scalar('metric_val/supervised_iou', performance1[5], iter_num)
 
                 logging.info(
-                    'MODEL1 iteration %d : dice: %f precision: %f recall: %f f1: %f accuracy: %f iou: %f' % 
+                    'model_supervised iteration %d : dice: %f precision: %f recall: %f f1: %f accuracy: %f iou: %f' % 
                         (iter_num, performance1[0], performance1[1], performance1[2], performance1[3], performance1[4], performance1[5]))
   
-                performance1 = performance1[0]
-                if performance1 > best_performance1:
-                    best_performance1 = performance1
+                performance1_mean = performance1[0]
+
+                if performance1_mean > best_performance1:
+                    best_performance1 = performance1_mean
                     save_mode_path = os.path.join(snapshot_path,
-                                                  'model1_iter_{}_{}.pth'.format(
-                                                      iter_num, round(best_performance1, 4)))
+                                                  'model_supervised_{}_{}_{}.pth'.format(
+                                                      iter_num, round(performance1[0], 4), round(performance1_mean, 4)))
                     save_best = os.path.join(snapshot_path,
-                                             '{}_best_model1.pth'.format(args.model))
-                    torch.save(model1.state_dict(), save_mode_path)
-                    torch.save(model1.state_dict(), save_best)
+                                             '{}_best_model_supervised.pth'.format(args.model))
+                    torch.save(model_supervised.state_dict(), save_mode_path)
+                    torch.save(model_supervised.state_dict(), save_best)
 
-                model1.train()
+                model_supervised.train()
 
-                model2.eval()
+                model_unsupervised.eval()
                 metric_list = 0.0
                 for i_batch, sampled_batch in enumerate(valloader):
                     metric_i = test_single_volume_cbr(
-                        sampled_batch["image"], sampled_batch["label"], model2, classes=num_classes)
+                        sampled_batch["image"], sampled_batch["label"], model_unsupervised, classes=num_classes)
                     metric_list += np.array(metric_i)
                 
                 metric_list = metric_list / len(db_val)
-                performance2 = np.mean(metric_list, axis=0)
+                performance2 = np.mean(metric_list, axis=0) 
 
                 writer.add_scalar('info_val/unsupervised_dice', performance2[0], iter_num)
                 writer.add_scalar('info_val/unsupervised_precision', performance2[1], iter_num)
@@ -319,36 +332,36 @@ def train(args, snapshot_path):
                 writer.add_scalar('info_val/unsupervised_iou', performance2[5], iter_num)
 
                 logging.info(
-                    'MODEL2 iteration %d : dice: %f precision: %f recall: %f f1: %f accuracy: %f iou: %f' % 
+                    'model_unsupervised iteration %d : dice: %f precision: %f recall: %f f1: %f accuracy: %f iou: %f' % 
                         (iter_num, performance2[0], performance2[1], performance2[2], performance2[3], performance2[4], performance2[5]))
-          
-                performance2 = performance2[0]
-                if performance2 > best_performance2:
-                    best_performance2 = performance2
-                    save_mode_path = os.path.join(snapshot_path,
-                                                  'model2_iter_{}_{}.pth'.format(
-                                                      iter_num, round(best_performance2, 4)))
-                    save_best = os.path.join(snapshot_path,
-                                             '{}_best_model2.pth'.format(args.model))
-                    torch.save(model2.state_dict(), save_mode_path)
-                    torch.save(model2.state_dict(), save_best)
+                 
+                performance2_mean = performance2[0]
 
-                model2.train()
+                if performance2_mean > best_performance2:
+                    best_performance2 = performance2_mean
+                    save_mode_path = os.path.join(snapshot_path,
+                                                  'model_unsupervised_{}_{}_{}.pth'.format(
+                                                      iter_num, round(performance2[0], 4), round(best_performance2, 4)))
+                    save_best = os.path.join(snapshot_path,
+                                             '{}_best_model_unsupervised.pth'.format(args.model))
+                    torch.save(model_unsupervised.state_dict(), save_mode_path)
+                    torch.save(model_unsupervised.state_dict(), save_best)
+
+                model_unsupervised.train()
 
             if iter_num % 3000 == 0:
                 save_mode_path = os.path.join(
-                    snapshot_path, 'model1_iter_' + str(iter_num) + '.pth')
-                torch.save(model1.state_dict(), save_mode_path)
-                logging.info("save model1 to {}".format(save_mode_path))
+                    snapshot_path, 'model_supervised_' + str(iter_num) + '.pth')
+                torch.save(model_supervised.state_dict(), save_mode_path)
+                logging.info("save model_supervised to {}".format(save_mode_path))
 
                 save_mode_path = os.path.join(
-                    snapshot_path, 'model2_iter_' + str(iter_num) + '.pth')
-                torch.save(model2.state_dict(), save_mode_path)
-                logging.info("save model2 to {}".format(save_mode_path))
+                    snapshot_path, 'model_unsupervised_' + str(iter_num) + '.pth')
+                torch.save(model_unsupervised.state_dict(), save_mode_path)
+                logging.info("save model_unsupervised to {}".format(save_mode_path))
 
             if iter_num >= max_iterations:
                 break
-            time1 = time.time()
         if iter_num >= max_iterations:
             iterator.close()
             break
