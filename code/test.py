@@ -86,9 +86,28 @@ def test_single_volume(case, net, test_save_path, FLAGS, writer, i=0):
 
     metric = calculate_metric_percase(prediction, label)
 
+    compare_image = np.zeros((3,128,128))
+
+    for k in range(128):
+        for j in range(128):
+            if prediction[0][k][j] == label[0][k][j]:
+                compare_image[0][k][j] = prediction[0][k][j]
+                compare_image[1][k][j] = prediction[0][k][j]
+                compare_image[2][k][j] = prediction[0][k][j]
+            elif prediction[0][k][j] > label[0][k][j]:
+                compare_image[0][k][j] = 1
+                compare_image[1][k][j] = 0
+                compare_image[2][k][j] = 0
+            else:
+                compare_image[0][k][j] = 0
+                compare_image[1][k][j] = 1
+                compare_image[2][k][j] = 0
+
+
     writer.add_image("Image", image_oryginal[1:3, :, :], i)
     writer.add_image("Prediction", prediction * 50, i)
     writer.add_image("GroundTruth", label * 50, i)
+    writer.add_image("CompareImage", compare_image, i)
 
     writer.add_scalar('info/val_mean_precision', metric[0], i)
     writer.add_scalar('info/val_mean_recall', metric[1], i)
